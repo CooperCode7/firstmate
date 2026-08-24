@@ -1,0 +1,14 @@
+.git
+data/
+state/
+config/
+projects/
+.env
+.no-mistakes/
+.lavish/
+scratchpad*
+.fm-secondmate-home
+.fm-secondmate-parent
+**/.DS_Store
+**/__pycache__/
+**/*.pyc

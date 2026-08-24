@@ -1,0 +1,47 @@
+services:
+  proxy:
+    image: ubuntu/squid:latest
+    volumes:
+      - ./docker/squid.conf:/etc/squid/squid.conf:ro
+    networks:
+      - sealed
+      - egress
+    restart: unless-stopped
+
+  firstmate:
+    build: .
+    depends_on:
+      - proxy
+    environment:
+      HTTP_PROXY: http://proxy:3128
+      HTTPS_PROXY: http://proxy:3128
+      http_proxy: http://proxy:3128
+      https_proxy: http://proxy:3128
+      NO_PROXY: localhost,127.0.0.1,proxy
+      GH_TOKEN: ${GH_TOKEN:?set GH_TOKEN to a fine-grained token scoped to the repos agents may touch}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLICKUP_API_KEY: ${CLICKUP_API_KEY:-}
+      CLICKUP_TEAM_ID: ${CLICKUP_TEAM_ID:-}
+      MOTHERDUCK_TOKEN: ${MOTHERDUCK_TOKEN:-}
+      FM_CLICKUP_TASK: ${FM_CLICKUP_TASK:-}
+      FM_CLICKUP_MENTION_USER_ID: ${FM_CLICKUP_MENTION_USER_ID:-}
+    volumes:
+      - fmhome:/home/fm
+      - ${CLAUDE_SEED_DIR:-~/.claude}:/seed/claude:ro
+    networks:
+      - sealed
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+
+networks:
+  # No external route: the firstmate service can only reach the proxy.
+  sealed:
+    internal: true
+  egress: {}
+
+volumes:
+  fmhome:
