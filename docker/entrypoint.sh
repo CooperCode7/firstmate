@@ -17,13 +17,20 @@ mkdir -p "$CLAUDE_DIR" "$FM_HOME/config"
 # Guardrails only. Session transcripts, history, and credentials stay on the
 # host: this container authenticates as itself.
 if [ -d "$SEED" ]; then
+  synced=
   for item in CLAUDE.md settings.json settings.local.json keybindings.json agents skills plugins; do
     [ -e "$SEED/$item" ] || continue
     rm -rf "${CLAUDE_DIR:?}/$item"
     cp -R "$SEED/$item" "$CLAUDE_DIR/$item"
+    synced="$synced $item"
   done
   rm -f "$CLAUDE_DIR/.credentials.json"
-  echo "entrypoint: synced guardrails from $SEED"
+  if [ -n "$synced" ]; then
+    echo "entrypoint: synced from $SEED:$synced"
+  else
+    # An empty or wrong mount would otherwise look identical to a good one.
+    echo "entrypoint: $SEED holds none of the expected guardrail files; check the mount" >&2
+  fi
 else
   echo "entrypoint: no $SEED mount; using whatever already lives in $CLAUDE_DIR" >&2
 fi
