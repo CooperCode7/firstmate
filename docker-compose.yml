@@ -25,6 +25,8 @@ services:
       MOTHERDUCK_TOKEN: ${MOTHERDUCK_TOKEN:-}
       FM_CLICKUP_TASK: ${FM_CLICKUP_TASK:-}
       FM_CLICKUP_MENTION_USER_ID: ${FM_CLICKUP_MENTION_USER_ID:-}
+      OMNI_API_TOKEN: ${OMNI_API_TOKEN}
+      OMNI_BASE_URL: ${OMNI_BASE_URL}
     volumes:
       - fmhome:/home/fm
       - ${CLAUDE_SEED_DIR:-~/.claude}:/seed/claude:ro
