@@ -82,13 +82,14 @@ SH
   printf '%s\n' "$fb"
 }
 
-# The commit this branch started from - the P1 "current main" baseline.
+# The commit this branch started from - the P1 default-branch baseline.
 # Suitable for byte-identical old-vs-new checks while a branch still diverges
-# from main. After a squash lands, merge-base(HEAD, main) collapses to HEAD, so
+# from it. After a squash lands, that merge-base collapses to HEAD, so
 # callers that need a true pre-change fixture must not rely on this alone.
 resolve_base_ref() {
   local ref base
-  for ref in main refs/heads/main origin/main refs/remotes/origin/main origin/HEAD refs/remotes/origin/HEAD; do
+  for ref in origin/HEAD refs/remotes/origin/HEAD master refs/heads/master origin/master \
+    refs/remotes/origin/master main refs/heads/main origin/main refs/remotes/origin/main; do
     if git -C "$ROOT" rev-parse --verify -q "$ref^{commit}" >/dev/null; then
       base=$(git -C "$ROOT" merge-base HEAD "$ref" 2>/dev/null) || continue
       [ -n "$base" ] || continue
@@ -99,7 +100,7 @@ resolve_base_ref() {
   return 1
 }
 BASE_REF=$(resolve_base_ref) \
-  || fail "fm-backend baseline requires local main or origin/main; fetch the default branch before running this test"
+  || fail "fm-backend baseline needs the default branch locally or as an origin ref; fetch it before running this test"
 
 # Newest first-parent revision whose bin/backends/tmux.sh still uses the
 # pre-exact permissive kill-window target. Content-addressed from history so the

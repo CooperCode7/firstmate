@@ -72,8 +72,6 @@
 set -eu
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=bin/fm-tangle-lib.sh
-. "$ROOT/bin/fm-tangle-lib.sh"
 cd "$ROOT" || exit 1
 
 MODE=
@@ -1448,7 +1446,10 @@ case "${MODE:-}" in
     ;;
   changed)
     if [ -z "$BASE_REF" ]; then
-      BASE_REF=origin/$(fm_default_branch "$ROOT" 2>/dev/null || printf master)
+      # origin/HEAD already prints as origin/<branch>, so it needs no assembly.
+      BASE_REF=$(git -C "$ROOT" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) \
+        || BASE_REF=
+      [ -n "$BASE_REF" ] || BASE_REF=origin/master
     fi
     select_changed "$BASE_REF"
     SELECTION_DESC="changed:base=$BASE_REF"
