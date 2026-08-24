@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 permissions:
   contents: read
@@ -67,7 +67,7 @@ jobs:
       - name: Install tasks-axi
         run: |
           set -eu
-          npm install -g tasks-axi
+          npm install -g tasks-axi@0.2.5
           tasks-axi --version
       - name: Run portable parallel shard 1
         run: |
@@ -104,7 +104,7 @@ jobs:
       - name: Install tasks-axi
         run: |
           set -eu
-          npm install -g tasks-axi
+          npm install -g tasks-axi@0.2.5
           tasks-axi --version
       - name: Run portable parallel shard 2
         run: |
@@ -163,7 +163,7 @@ jobs:
       - name: Install tasks-axi for backlog-handoff delegation
         run: |
           set -eu
-          npm install -g tasks-axi
+          npm install -g tasks-axi@0.2.5
           tasks-axi --version
       - name: Run portable serial shard ${{ matrix.shard }}
         env:

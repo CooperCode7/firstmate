@@ -180,8 +180,9 @@ test_list_files_reports_the_shell_inventory() {
 # this worktree's actual branch, remotes, or history:
 #   FM_TEST_GIT_INSIDE_WORKTREE  1 (default) or 0
 #   FM_TEST_GIT_BRANCH           branch name for `rev-parse --abbrev-ref HEAD`
-#   FM_TEST_GIT_HAS_ORIGIN_MAIN  1 (default) or 0
-#   FM_TEST_GIT_HAS_MAIN         1 (default) or 0
+#   FM_TEST_GIT_DEFAULT_BRANCH   default branch name (default: master)
+#   FM_TEST_GIT_HAS_ORIGIN_MAIN  remote default-branch ref present: 1 (default) or 0
+#   FM_TEST_GIT_HAS_MAIN         local default-branch ref present: 1 (default) or 0
 #   FM_TEST_GIT_MERGE_BASE_OK    1 (default) or 0
 #   FM_TEST_GIT_MERGE_BASE       merge-base value to print when OK
 #   FM_TEST_GIT_DIFF_FILE        path to a file of NUL-separated changed paths
@@ -199,10 +200,17 @@ case "$*" in
     printf '%s\n' "${FM_TEST_GIT_BRANCH:-feature}"
     exit 0
     ;;
-  "rev-parse --verify -q origin/main")
+  *"symbolic-ref --quiet --short refs/remotes/origin/HEAD")
+    printf 'origin/%s\n' "${FM_TEST_GIT_DEFAULT_BRANCH:-master}"
+    exit 0
+    ;;
+  *"show-ref --verify --quiet refs/heads/"*)
+    exit 0
+    ;;
+  "rev-parse --verify -q origin/"*)
     [ "${FM_TEST_GIT_HAS_ORIGIN_MAIN:-1}" = 1 ] && exit 0 || exit 1
     ;;
-  "rev-parse --verify -q main")
+  "rev-parse --verify -q "*)
     [ "${FM_TEST_GIT_HAS_MAIN:-1}" = 1 ] && exit 0 || exit 1
     ;;
   "merge-base "*)

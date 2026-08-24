@@ -947,10 +947,7 @@ seed_home() {
 
   projects_csv=$(join_projects "$@")
   # Durable record of this home's route to its parent, written once here next
-  # to the identity marker: the cleanup check in fm-teardown.sh reads it so a
-  # restart that drops the launch-time FM_PUBLIC_FOLLOWUP_PRIMARY_HOME prefix
-  # can still resolve the real parent instead of silently treating its relay
-  # as inactive.
+  # to the identity marker, so a restart can still resolve the real parent.
   {
     printf 'schema=fm-secondmate-parent.v1\n'
     printf 'route=local\n'

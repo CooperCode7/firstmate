@@ -11,7 +11,6 @@ The proof ran 24 candidates with four workers and no failures.
 | duration_ms | script |
 |---:|---|
 | 45356 | `tests/fm-backend-herdr.test.sh` |
-| 35415 | `tests/fm-x-mode.test.sh` |
 | 35095 | `tests/fm-captain-hold-lifecycle.test.sh` |
 | 27529 | `tests/fm-arm-pretool-check.test.sh` |
 | 20922 | `tests/fm-test-run.test.sh` |

@@ -1669,13 +1669,12 @@ test_secondmate_teardown_preserves_process_events_on_later_refusal() {
   subhome="$TMP_ROOT/procevent-later-refusal-subhome"
   sweep_log="$TMP_ROOT/procevent-later-refusal-sweep.log"
   err="$TMP_ROOT/procevent-later-refusal.err"
-  mkdir -p "$home/state/public-followup/registry" "$home/data" "$subhome/state/procevent"
+  mkdir -p "$home/state" "$home/data" "$subhome/state/procevent"
   mark_firstmate_home "$subhome"
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   printf 'adapter=lavish\n' > "$subhome/state/procevent/source.source"
   install_fake_process_event_sweep "$subhome" "$sweep_log"
-  printf 'FMX_PAIRING_TOKEN=test-token\n' > "$home/.env"
-  printf 'work_home=secondmate:domain\nwork_id=domain\n' > "$home/state/public-followup/registry/obligation"
+  printf 'project=alpha\n' > "$subhome/state/child-task.meta"
   fm_write_secondmate_meta "$home/state/domain.meta" "$subhome"
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   fakebin=$(make_fake_tmux "$TMP_ROOT/procevent-later-refusal-fake")
@@ -1690,9 +1689,9 @@ SH
       FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/procevent-later-refusal-fake/pane.txt" \
       FM_FAKE_PROCEVENT_SWEEP_LOG="$sweep_log" \
       "$ROOT/bin/fm-teardown.sh" domain >/dev/null 2>"$err"; then
-    fail "teardown bypassed a later public-followup refusal"
+    fail "teardown bypassed a later in-flight-work refusal"
   fi
-  grep -F 'still owes a public reply' "$err" >/dev/null || fail "later public-followup refusal was not reached"
+  grep -F 'still has in-flight work' "$err" >/dev/null || fail "later in-flight-work refusal was not reached"
   [ ! -s "$sweep_log" ] || fail "later refusal retired process-event sources before teardown was authorized"
   [ -e "$subhome/state/procevent/source.source" ] || fail "later refusal removed the process-event registration"
   [ -d "$subhome" ] || fail "later refusal removed the secondmate home"

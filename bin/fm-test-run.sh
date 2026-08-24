@@ -27,7 +27,8 @@
 # Options:
 #   --json <path>   write a deterministic timing artifact after the run
 #   --list          print selected script paths (one per line) and exit 0
-#   --base <ref>    with --changed, compare against this ref (default: origin/main)
+#   --base <ref>    with --changed, compare against this ref (default: the
+#                   default branch's origin tracking ref)
 #   --exclude-family <name>
 #                   drop scripts whose primary family matches <name> after selection
 #                   (repeatable; portable CI lanes exclude real-herdr-gated so the
@@ -81,7 +82,7 @@ CHECK_COVERAGE=0
 AGGREGATE_OUT=
 FAMILY=
 LANE=
-BASE_REF=origin/main
+BASE_REF=
 JSON_PATH=
 SCRIPTS=()
 EXCLUDE_FAMILIES=()
@@ -212,7 +213,7 @@ family_for_basename() {
       printf '%s\n' backend-dispatch
       ;;
     fm-pr-check-security.test.sh|fm-pr-merge.test.sh|fm-review-diff.test.sh|\
-    fm-teardown.test.sh|fm-x-mode.test.sh)
+    fm-teardown.test.sh)
       printf '%s\n' pr-forge
       ;;
     fm-afk-inject-e2e.test.sh|fm-afk-return.test.sh)
@@ -306,7 +307,6 @@ tests/fm-supervision-instructions.test.sh
 tests/fm-test-run.test.sh
 tests/fm-tmux-submit-busy.test.sh
 tests/fm-transition-lib.test.sh
-tests/fm-x-mode.test.sh
 EOF
 }
 
@@ -315,9 +315,8 @@ EOF
 # Execution order is longest first so wall-clock stays near the balanced sum.
 list_portable_parallel_1() {
   cat <<'EOF'
-tests/fm-x-mode.test.sh
-tests/fm-cd-pretool-check.test.sh
 tests/fm-captain-hold-lifecycle.test.sh
+tests/fm-cd-pretool-check.test.sh
 tests/fm-test-run.test.sh
 tests/fm-composer-ghost.test.sh
 tests/fm-grok-harness.test.sh
@@ -445,7 +444,6 @@ tests/fm-pr-check-security.test.sh 250417
 tests/fm-procevent-when.test.sh 15249
 tests/fm-procevent.test.sh 53142
 tests/fm-project-origin.test.sh 105
-tests/fm-public-followup.test.sh 36301
 tests/fm-quota-array-dispatch-live-e2e.test.sh 18
 tests/fm-remote-backlog-handoff.test.sh 20389
 tests/fm-remote-doctor.test.sh 4705
@@ -984,7 +982,7 @@ families_for_changed_path() {
       printf '%s\n' watcher-wake-lock
       ;;
     bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-teardown.sh|bin/fm-review-diff.sh|\
-    bin/fm-x-*|bin/fm-check*)
+    bin/fm-check*)
       printf '%s\n' pr-forge
       ;;
     bin/fm-nm-run-lib.sh)
@@ -1081,7 +1079,7 @@ families_for_changed_path() {
     tests/*)
       printf '%s\n' "__unmapped__:$path"
       ;;
-    README.md|LICENSE|assets/*|docs/*|.gitignore)
+    README.md|LICENSE|assets/*|docs/*|.gitignore|.dockerignore|Dockerfile|docker-compose.yml|docker/*)
       ;;
     *)
       families_for_test_reference "$path" \
@@ -1447,6 +1445,12 @@ case "${MODE:-}" in
     SELECTION_DESC="proven-isolated"
     ;;
   changed)
+    if [ -z "$BASE_REF" ]; then
+      # origin/HEAD already prints as origin/<branch>, so it needs no assembly.
+      BASE_REF=$(git -C "$ROOT" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) \
+        || BASE_REF=
+      [ -n "$BASE_REF" ] || BASE_REF=origin/master
+    fi
     select_changed "$BASE_REF"
     SELECTION_DESC="changed:base=$BASE_REF"
     ;;

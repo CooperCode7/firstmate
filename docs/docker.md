@@ -1,0 +1,124 @@
+# Sealed container
+
+Runs firstmate and its crew inside Docker with no access to the host filesystem, host credentials, or any network destination outside a fixed allowlist.
+Use it when agents should be able to read and change code without being able to reach anything else on the machine.
+
+## What is sealed
+
+The `firstmate` service sits on an `internal: true` Docker network, so it has no route off the host at all.
+Its only path outward is the `proxy` sidecar, which runs Squid with a default-deny allowlist ([`docker/squid.conf`](../docker/squid.conf)).
+A destination that is not listed is unreachable, and nothing needs to be named to block it.
+
+Currently allowed: Anthropic (including `claude.com`, which Claude Code signs in against), GitHub, ClickUp, MotherDuck, and the DuckDB extension host.
+Everything else, including every package registry at runtime, is refused.
+Each tool the container needs is installed at build time so a normal session never asks for one.
+
+Project code is cloned fresh inside the container.
+No host repository is mounted, and the container authenticates to GitHub as itself.
+
+## Credentials
+
+Every credential arrives as an environment variable and is passed by reference; none is read from the host's `~/.claude`.
+
+| Variable | Purpose |
+| --- | --- |
+| `GH_TOKEN` | **Required.** A fine-grained token limited to the repositories agents may touch. |
+| `ANTHROPIC_API_KEY` | Claude authentication. Leave it empty to sign in interactively instead (see below). |
+| `CLICKUP_API_KEY`, `CLICKUP_TEAM_ID` | ClickUp MCP tools and captain notifications. |
+| `MOTHERDUCK_TOKEN` | MotherDuck MCP tools. |
+| `FM_CLICKUP_TASK` | Task that captain notifications comment on. |
+| `FM_CLICKUP_MENTION_USER_ID` | Mentioned on each notification so ClickUp sends alert mail. |
+
+Scope the GitHub token deliberately: it can push wherever it has reach, so a repository that must never be written should be granted read access or left out entirely.
+
+## Setup
+
+Put the variables above in a local `.env` beside `docker-compose.yml` (it is gitignored), then:
+
+```sh
+docker compose build
+docker compose up -d
+docker compose exec firstmate tmux attach -t firstmate
+```
+
+Inside the session, start firstmate the usual way with `bin/fm-session-start.sh`.
+
+### Signing in without an API key
+
+Leave `ANTHROPIC_API_KEY` empty and run `claude` once inside the container.
+It prints a URL to open in your own browser and takes the resulting code back, so the headless container needs no browser of its own.
+The allowlist already permits the sign-in hosts.
+
+The credentials are written under the container's home directory, which is a named volume, so the sign-in survives restarts and `docker compose up` cycles.
+Only `docker compose down -v`, which deletes the volume, requires signing in again.
+The guardrail sync deliberately never removes them.
+
+## Host guardrails
+
+`~/.claude` is mounted read-only at `/seed/claude`, and [`docker/entrypoint.sh`](../docker/entrypoint.sh) copies the guardrail material out of it on every start: `CLAUDE.md`, `settings.json`, `settings.local.json`, `keybindings.json`, `agents/`, `skills/`, and the whole `plugins/` tree, so installed plugins load exactly as they do on the host.
+Editing any of those on the host and restarting the container propagates the change.
+
+Credentials and session transcripts are never copied.
+The mount is read-only, so nothing in the container can write back to the host.
+Point `CLAUDE_SEED_DIR` at another directory to seed from somewhere else.
+
+## Captain notifications
+
+Linux has no equivalent of the macOS notification the away-mode alarm uses, so the container reaches the captain through ClickUp instead.
+[`bin/fm-clickup-notify.sh`](../bin/fm-clickup-notify.sh) posts a comment on the configured task and mentions the captain so ClickUp sends its email.
+The entrypoint wires it in as the away-mode alarm when `FM_CLICKUP_TASK` is set.
+
+```sh
+bin/fm-clickup-notify.sh "PR ready for review: <url>"
+```
+
+## Verifying the seal
+
+From inside the container:
+
+```sh
+curl -sS -o /dev/null -w '%{http_code}\n' https://api.github.com   # expect 2xx/4xx from GitHub
+curl -sS https://example.com                                        # expect a proxy denial
+ls /                                                                # no host paths
+gh auth status                                                      # only the scoped token identity
+```
+
+A service that should work but does not is usually a host nobody thought to list.
+The proxy names it immediately:
+
+```sh
+docker compose exec proxy grep DENIED /var/log/squid/access.log | awk '{print $7}' | sort -u
+```
+
+If a permitted service fails, read the proxy's request log with `docker compose exec proxy tail -f /var/log/squid/access.log` and add the destination to the allowlist only if it belongs there.
+
+## Clients that ignore the proxy
+
+A few clients open sockets directly and never read `HTTP_PROXY`. In the sealed
+network that leaves them with no route at all, since there is no egress and
+external names do not resolve. The DuckDB MotherDuck extension is one.
+
+[`docker/proxy-tunnel.py`](../docker/proxy-tunnel.py) fronts those hosts. Each
+one is mapped to a loopback address by `extra_hosts` in the compose file, the
+tunnel listens there, and every connection is forwarded through the proxy with
+an ordinary `CONNECT`. Bytes are relayed untouched, so TLS stays end to end and
+nothing is decrypted.
+
+Listing a host grants it nothing. The allowlist still decides: a `CONNECT` the
+proxy refuses fails the connection exactly as a direct attempt would, so a
+tunneled host that is not in `squid.conf` simply does not work.
+
+To front another host, add an `extra_hosts` entry with an unused `127.0.0.x`
+address (avoid `127.0.0.11`, Docker's own resolver), pass the same mapping to
+the tunnel in [`docker/entrypoint.sh`](../docker/entrypoint.sh), and make sure
+the hostname is allowlisted. MotherDuck needs two, `api.` and `ext.`, the second
+serving the implementation extension it downloads on first connect.
+
+The service holds `NET_BIND_SERVICE` for this, and nothing else: binding
+loopback ports 80 and 443 as a non-root user. `cap_drop: ALL` still applies to
+everything else.
+
+## Limits
+
+The container runs the tmux backend; the cmux and orca backends are macOS-only and unavailable.
+Pinned tool versions age: the axi family tracks its latest published release, so a long-lived image eventually reports a version floor at session start and needs a rebuild.

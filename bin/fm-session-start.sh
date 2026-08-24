@@ -33,7 +33,7 @@
 #                       diagnostics always run. Bootstrap's six MUTATING sweeps
 #                       (legacy PR-check migration, secondmate convergence,
 #                       secondmate liveness, pending remote handoff retry,
-#                       X-mode artifact writes, fleet sync) also run only when
+#                       fleet sync) also run only when
 #                       locked; the four network sweeps run in the deferred
 #                       stage rather than this synchronous bootstrap section.
 #   3. inactive outcomes + wake-drain - runs the local bounded inactive-outcome
@@ -101,7 +101,7 @@
 #
 # Why lock first: the old documented order (bootstrap, THEN lock) let a
 # SECOND concurrent session run bootstrap's mutating sweeps - converging
-# secondmate homes, retrying pending handoff outboxes, writing X-mode artifacts,
+# secondmate homes, retrying pending handoff outboxes,
 # and fetching or fast-forwarding every project clone - before ever discovering
 # another session already holds the lock. Two sessions racing those sweeps is
 # exactly the hazard the lock exists to prevent, so locking first closes the
@@ -189,7 +189,7 @@
 #             mutating sweeps that startup already reconciled - the stale Herdr
 #             projection cleanup and bootstrap's six mutating sweeps (fleet
 #             sync, secondmate convergence and liveness, PR-check migration,
-#             pending remote handoff retry, X-mode artifact writes) - and
+#             pending remote handoff retry) - and
 #             re-emit the rest. Wake-queue presentation is NOT skipped: queued
 #             records are this turn's work queue, they arrived after startup,
 #             and a session that owns the lock is exactly the session that must
@@ -327,8 +327,6 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-tasks-axi-lib.sh
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
-# shellcheck source=bin/fm-public-followup-lib.sh
-. "$SCRIPT_DIR/fm-public-followup-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -442,7 +440,7 @@ strip_axi_help() {
 
 # Bound the dispatchable-now listing without rewriting the tool's own rendering:
 # `tasks-axi ready` rows are the indented lines under its ready[N]{...} header,
-# and every other line it prints (its count, its public-followup line) passes
+# and every other line it prints (its count, its trailing lines) passes
 # through untouched. Whatever is cut is disclosed exactly.
 print_ready_queued_bounded() {
   local ready=$1 path=$2
@@ -611,7 +609,7 @@ if [ "$REEMIT" -eq 1 ]; then
   printf 'context. Lock ownership is re-verified and the durable records below are\n'
   printf 'reprinted, but the sweeps startup already reconciled - project clone refresh,\n'
   printf 'secondmate convergence and liveness, PR-check migration, pending remote handoff\n'
-  printf 'retry, X-mode artifact writes, and stale Herdr child cleanup - are NOT repeated.\n'
+  printf 'retry and stale Herdr child cleanup - are NOT repeated.\n'
   printf 'Queued wakes ARE still drained: they arrived after startup and are this turn work.\n'
 else
   section "SESSION START - $FM_HOME"
@@ -632,7 +630,7 @@ if [ "$LOCK_RC" -ne 0 ]; then
     printf '●  %s\n' "$LOCK_OUT"
     printf '●  Skipping every mutating step: PR-check migration, stale Herdr child cleanup,\n'
     printf '●  secondmate convergence, secondmate liveness, pending remote handoff retry,\n'
-    printf '●  X-mode artifacts, fleet sync, and wake-queue drain. Detect-only bootstrap\n'
+    printf '●  fleet sync and wake-queue drain. Detect-only bootstrap\n'
     printf '●  diagnostics and the rest of this read-only-safe digest still ran below.\n'
     printf '●  Operate read-only until this resolves - do not spawn, steer, merge, or\n'
     printf '●  otherwise mutate fleet state from this session.\n'
@@ -738,8 +736,6 @@ fi
 stage supervision-instructions
 AFK_PRESENT=0
 [ -e "$STATE/.afk" ] && AFK_PRESENT=1
-X_MODE_PRESENT=0
-[ -f "$CONFIG/x-mode.env" ] && X_MODE_PRESENT=1
 
 if [ "$PRIMARY_HARNESS" = pi ] || [ "$PRIMARY_HARNESS" = pi-signed ]; then
   PI_EXT="$FM_ROOT/.pi/extensions/fm-primary-pi-watch.ts"
@@ -759,8 +755,7 @@ fi
 "$SCRIPT_DIR/fm-supervision-instructions.sh" \
   --harness "$PRIMARY_HARNESS" \
   --read-only "$READ_ONLY" \
-  --afk "$AFK_PRESENT" \
-  --x-mode "$X_MODE_PRESENT"
+  --afk "$AFK_PRESENT"
 
 # --- 5. read-once contract -------------------------------------------------
 # Ahead of the two digests it governs, not after them: a truncated tail is
@@ -850,24 +845,6 @@ else
   printf 'absent\n'
 fi
 
-# Public commitments made through the myfirstmate relay. A promise to reply in a
-# public thread must survive compaction and restart, so it is surfaced from disk
-# here rather than from conversation memory. fm-public-followup-lib.sh owns both
-# gates: a home that never opted into the relay runs one [ -f ] test, prints no
-# subsection, and never reaches fm-public-followup.sh.
-if fm_pf_relay_active "$FM_HOME" \
-  && { fm_pf_has_registrations "$STATE" || fm_pf_has_events "$STATE"; }; then
-  PUBLIC_FOLLOWUP=$("$SCRIPT_DIR/fm-public-followup.sh" pending 2>/dev/null) || PUBLIC_FOLLOWUP=
-  if [ -n "$PUBLIC_FOLLOWUP" ]; then
-    subsection "Public commitments"
-    printf '%s\n' "$PUBLIC_FOLLOWUP"
-    printf '\nEach line is a public loop this home still holds: a reply still owed, or an open loop with nothing owed.\n'
-    printf 'Reconcile terminal results with %s/bin/fm-public-followup.sh consume, then deliver a ready one with\n' "$FM_ROOT"
-    printf '%s/bin/fm-public-followup.sh deliver <id>. Hand a delivered loop on with rechain, or close it with\n' "$FM_ROOT"
-    printf '%s/bin/fm-public-followup.sh retire <id> --reason "...". Load fmx-respond for the procedure.\n' "$FM_ROOT"
-  fi
-fi
-
 # --- 7. network checks ------------------------------------------------------
 # Deliberately here and not later: these lines are actionable (a stuck clone, a
 # secondmate that could not be relaunched, broken GitHub auth), and the section
@@ -915,13 +892,6 @@ elif [ "$AFK_PRESENT" -eq 1 ]; then
 Away mode is active. Follow the supervision operating instructions block above:
 load /afk and ensure the daemon is running, because the daemon owns watcher
 supervision.
-
-EOF
-elif [ -f "$CONFIG/x-mode.env" ]; then
-  cat <<EOF
-Follow the supervision operating instructions block above for harness '$PRIMARY_HARNESS'.
-X mode is active, so the emitted block's cadence instruction applies.
-This script never starts supervision itself.
 
 EOF
 else
