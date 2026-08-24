@@ -9,7 +9,7 @@ The `firstmate` service sits on an `internal: true` Docker network, so it has no
 Its only path outward is the `proxy` sidecar, which runs Squid with a default-deny allowlist ([`docker/squid.conf`](../docker/squid.conf)).
 A destination that is not listed is unreachable, and nothing needs to be named to block it.
 
-Currently allowed: Anthropic, GitHub, ClickUp, MotherDuck, and the DuckDB extension host.
+Currently allowed: Anthropic (including `claude.com`, which Claude Code signs in against), GitHub, ClickUp, MotherDuck, and the DuckDB extension host.
 Everything else, including every package registry at runtime, is refused.
 Each tool the container needs is installed at build time so a normal session never asks for one.
 
@@ -81,6 +81,13 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://api.github.com   # expect 2xx/
 curl -sS https://example.com                                        # expect a proxy denial
 ls /                                                                # no host paths
 gh auth status                                                      # only the scoped token identity
+```
+
+A service that should work but does not is usually a host nobody thought to list.
+The proxy names it immediately:
+
+```sh
+docker compose exec proxy grep DENIED /var/log/squid/access.log | awk '{print $7}' | sort -u
 ```
 
 If a permitted service fails, read the proxy's request log with `docker compose exec proxy tail -f /var/log/squid/access.log` and add the destination to the allowlist only if it belongs there.
