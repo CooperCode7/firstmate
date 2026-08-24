@@ -16,7 +16,7 @@
 #
 # With no explicit paths, the file set depends on context:
 #   - In CI (GITHUB_ACTIONS=true or CI=true), on the main branch, or when no
-#     merge-base against origin/main (or local main) can be found, it lints
+#     merge-base against the default branch can be found, it lints
 #     the full canonical set: bin/*.sh bin/backends/*.sh tests/*.sh. This is
 #     what CI always runs, so CI coverage never depends on a local diff.
 #   - Otherwise (an ordinary local branch with a real merge-base) it lints
@@ -51,6 +51,8 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$SELF_DIR/fm-lint.sh"
 ROOT="$(cd "$SELF_DIR/.." && pwd)"
 cd "$ROOT" || exit 1
+# shellcheck source=bin/fm-tangle-lib.sh
+. "$SELF_DIR/fm-tangle-lib.sh"
 
 FM_LINT_WORKER_SHELLCHECK_PID=
 # shellcheck disable=SC2329 # Registered by the private worker's signal traps.
@@ -179,16 +181,18 @@ if [ "$FAST" -eq 1 ] && { [ "${GITHUB_ACTIONS:-}" = true ] || [ "${CI:-}" = true
 fi
 
 # fm_lint_changed_base_ref prints the ref to diff the working branch against:
-# the local origin/main tracking ref when present, else local main. Returns
+# this repo's default branch, preferring its remote tracking ref. Returns
 # nonzero when neither is resolvable, which the caller treats as "no
 # merge-base found" and falls back to a full lint.
 fm_lint_changed_base_ref() {
-  if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
-    printf 'origin/main\n'
+  local branch
+  branch=$(fm_default_branch "$ROOT" 2>/dev/null) || return 1
+  if git rev-parse --verify -q "origin/$branch" >/dev/null 2>&1; then
+    printf 'origin/%s\n' "$branch"
     return 0
   fi
-  if git rev-parse --verify -q main >/dev/null 2>&1; then
-    printf 'main\n'
+  if git rev-parse --verify -q "$branch" >/dev/null 2>&1; then
+    printf '%s\n' "$branch"
     return 0
   fi
   return 1

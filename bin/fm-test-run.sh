@@ -27,7 +27,8 @@
 # Options:
 #   --json <path>   write a deterministic timing artifact after the run
 #   --list          print selected script paths (one per line) and exit 0
-#   --base <ref>    with --changed, compare against this ref (default: origin/main)
+#   --base <ref>    with --changed, compare against this ref (default: the
+#                   default branch's origin tracking ref)
 #   --exclude-family <name>
 #                   drop scripts whose primary family matches <name> after selection
 #                   (repeatable; portable CI lanes exclude real-herdr-gated so the
@@ -71,6 +72,8 @@
 set -eu
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=bin/fm-tangle-lib.sh
+. "$ROOT/bin/fm-tangle-lib.sh"
 cd "$ROOT" || exit 1
 
 MODE=
@@ -81,7 +84,7 @@ CHECK_COVERAGE=0
 AGGREGATE_OUT=
 FAMILY=
 LANE=
-BASE_REF=origin/main
+BASE_REF=
 JSON_PATH=
 SCRIPTS=()
 EXCLUDE_FAMILIES=()
@@ -1444,6 +1447,9 @@ case "${MODE:-}" in
     SELECTION_DESC="proven-isolated"
     ;;
   changed)
+    if [ -z "$BASE_REF" ]; then
+      BASE_REF=origin/$(fm_default_branch "$ROOT" 2>/dev/null || printf master)
+    fi
     select_changed "$BASE_REF"
     SELECTION_DESC="changed:base=$BASE_REF"
     ;;
