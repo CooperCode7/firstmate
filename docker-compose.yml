@@ -28,10 +28,22 @@ services:
     volumes:
       - fmhome:/home/fm
       - ${CLAUDE_SEED_DIR:-~/.claude}:/seed/claude:ro
+    # Hosts whose clients ignore HTTP_PROXY and open sockets directly. Each
+    # resolves to a loopback address that docker/proxy-tunnel.py fronts, so the
+    # traffic still leaves through the proxy and its allowlist. Adding a name
+    # here grants nothing on its own: the allowlist decides, as it does for
+    # every other destination.
+    # 127.0.0.11 is Docker's own resolver, so the stand-ins skip it.
+    extra_hosts:
+      - "api.motherduck.com:127.0.0.10"
+      - "ext.motherduck.com:127.0.0.20"
     networks:
       - sealed
     cap_drop:
       - ALL
+    cap_add:
+      # Binding the loopback stand-ins on 80 and 443 as a non-root user.
+      - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
     init: true

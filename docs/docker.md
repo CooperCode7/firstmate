@@ -85,6 +85,32 @@ gh auth status                                                      # only the s
 
 If a permitted service fails, read the proxy's request log with `docker compose exec proxy tail -f /var/log/squid/access.log` and add the destination to the allowlist only if it belongs there.
 
+## Clients that ignore the proxy
+
+A few clients open sockets directly and never read `HTTP_PROXY`. In the sealed
+network that leaves them with no route at all, since there is no egress and
+external names do not resolve. The DuckDB MotherDuck extension is one.
+
+[`docker/proxy-tunnel.py`](../docker/proxy-tunnel.py) fronts those hosts. Each
+one is mapped to a loopback address by `extra_hosts` in the compose file, the
+tunnel listens there, and every connection is forwarded through the proxy with
+an ordinary `CONNECT`. Bytes are relayed untouched, so TLS stays end to end and
+nothing is decrypted.
+
+Listing a host grants it nothing. The allowlist still decides: a `CONNECT` the
+proxy refuses fails the connection exactly as a direct attempt would, so a
+tunneled host that is not in `squid.conf` simply does not work.
+
+To front another host, add an `extra_hosts` entry with an unused `127.0.0.x`
+address (avoid `127.0.0.11`, Docker's own resolver), pass the same mapping to
+the tunnel in [`docker/entrypoint.sh`](../docker/entrypoint.sh), and make sure
+the hostname is allowlisted. MotherDuck needs two, `api.` and `ext.`, the second
+serving the implementation extension it downloads on first connect.
+
+The service holds `NET_BIND_SERVICE` for this, and nothing else: binding
+loopback ports 80 and 443 as a non-root user. `cap_drop: ALL` still applies to
+everything else.
+
 ## Limits
 
 The container runs the tmux backend; the cmux and orca backends are macOS-only and unavailable.

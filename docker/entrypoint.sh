@@ -61,6 +61,14 @@ if [ -n "${FM_CLICKUP_TASK:-}" ] && [ ! -e "$FM_HOME/config/wedge-alarm" ]; then
   printf 'command:/opt/firstmate/bin/fm-clickup-notify.sh\n' > "$FM_HOME/config/wedge-alarm"
 fi
 
+# Front the proxy-blind hosts declared as extra_hosts in docker-compose.yml.
+# Each mapping must match one there, or its client resolves to a dead address.
+if [ -x /opt/firstmate/docker/proxy-tunnel.py ]; then
+  /opt/firstmate/docker/proxy-tunnel.py "${PROXY_HOST:-proxy:3128}" \
+    127.0.0.10=api.motherduck.com \
+    127.0.0.20=ext.motherduck.com &
+fi
+
 tmux has-session -t firstmate 2>/dev/null || tmux new-session -d -s firstmate
 echo "entrypoint: fleet session ready - attach with: docker compose exec firstmate tmux attach -t firstmate"
 
