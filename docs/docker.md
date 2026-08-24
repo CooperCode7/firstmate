@@ -23,7 +23,7 @@ Every credential arrives as an environment variable and is passed by reference; 
 | Variable | Purpose |
 | --- | --- |
 | `GH_TOKEN` | **Required.** A fine-grained token limited to the repositories agents may touch. |
-| `ANTHROPIC_API_KEY` | Claude authentication. Omit to log in interactively inside the container instead. |
+| `ANTHROPIC_API_KEY` | Claude authentication. Leave it empty to sign in interactively instead (see below). |
 | `CLICKUP_API_KEY`, `CLICKUP_TEAM_ID` | ClickUp MCP tools and captain notifications. |
 | `MOTHERDUCK_TOKEN` | MotherDuck MCP tools. |
 | `FM_CLICKUP_TASK` | Task that captain notifications comment on. |
@@ -42,6 +42,16 @@ docker compose exec firstmate tmux attach -t firstmate
 ```
 
 Inside the session, start firstmate the usual way with `bin/fm-session-start.sh`.
+
+### Signing in without an API key
+
+Leave `ANTHROPIC_API_KEY` empty and run `claude` once inside the container.
+It prints a URL to open in your own browser and takes the resulting code back, so the headless container needs no browser of its own.
+The allowlist already permits the sign-in hosts.
+
+The credentials are written under the container's home directory, which is a named volume, so the sign-in survives restarts and `docker compose up` cycles.
+Only `docker compose down -v`, which deletes the volume, requires signing in again.
+The guardrail sync deliberately never removes them.
 
 ## Host guardrails
 

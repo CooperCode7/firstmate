@@ -14,8 +14,11 @@ FM_HOME=${FM_HOME:-$HOME/fmhome}
 
 mkdir -p "$CLAUDE_DIR" "$FM_HOME/config"
 
-# Guardrails only. Session transcripts, history, and credentials stay on the
-# host: this container authenticates as itself.
+# Guardrails only, named one by one: session transcripts, history, and the
+# host's credentials are never among them, so this container authenticates as
+# itself. Nothing here removes an existing login, because an interactive
+# `claude` login inside the container writes its credentials into this same
+# directory and must survive a restart.
 if [ -d "$SEED" ]; then
   synced=
   for item in CLAUDE.md settings.json settings.local.json keybindings.json agents skills plugins; do
@@ -24,7 +27,6 @@ if [ -d "$SEED" ]; then
     cp -R "$SEED/$item" "$CLAUDE_DIR/$item"
     synced="$synced $item"
   done
-  rm -f "$CLAUDE_DIR/.credentials.json"
   if [ -n "$synced" ]; then
     echo "entrypoint: synced from $SEED:$synced"
   else
