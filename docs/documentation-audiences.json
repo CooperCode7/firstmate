@@ -153,10 +153,6 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/fmx-respond/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": ".agents/skills/harness-adapters/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -237,6 +233,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/captain-hold-lifecycle.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "docs/cd-guard.md",
       "audience": "maintainer-architecture"
     },
@@ -253,8 +253,8 @@
       "audience": "operator-current"
     },
     {
-      "path": "docs/captain-hold-lifecycle.md",
-      "audience": "maintainer-architecture"
+      "path": "docs/docker.md",
+      "audience": "operator-current"
     },
     {
       "path": "docs/documentation-audiences.md",
@@ -362,10 +362,6 @@
     },
     {
       "path": "docs/verification/process-event-sources.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "docs/verification/public-followup.md",
       "audience": "maintainer-verification"
     },
     {

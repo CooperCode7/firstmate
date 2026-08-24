@@ -45,14 +45,12 @@ This record is the concurrent isolation proof for the portable parallel candidat
 - `tests/fm-test-run.test.sh`
 - `tests/fm-tmux-submit-busy.test.sh`
 - `tests/fm-transition-lib.test.sh`
-- `tests/fm-x-mode.test.sh`
 
 ## Durations
 
 | duration_ms | exit | worker | script |
 |---:|---:|---:|---|
 | 45356 | 0 | 2 | `tests/fm-backend-herdr.test.sh` |
-| 35415 | 0 | 24 | `tests/fm-x-mode.test.sh` |
 | 35095 | 0 | 4 | `tests/fm-captain-hold-lifecycle.test.sh` |
 | 27529 | 0 | 1 | `tests/fm-arm-pretool-check.test.sh` |
 | 20922 | 0 | 21 | `tests/fm-test-run.test.sh` |

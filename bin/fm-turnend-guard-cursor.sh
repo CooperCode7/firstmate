@@ -55,7 +55,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 GRACE=${FM_GUARD_GRACE:-300}
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 OWNER="$STATE/.cursor-park-owner"
@@ -267,10 +266,6 @@ if ! fm_supervision_needed "$STATE" "$GRACE"; then
   budget_reset_if_ours
   exit 0
 fi
-
-# X mode cadence: an opted-in home polls Relay at its generated cadence.
-# shellcheck source=/dev/null
-[ -f "$CONFIG/x-mode.env" ] && . "$CONFIG/x-mode.env"
 
 # --- the park ----------------------------------------------------------------
 # The arm runs as a tracked child of THIS hook process, which stays alive and
