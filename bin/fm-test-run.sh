@@ -1079,7 +1079,7 @@ families_for_changed_path() {
     tests/*)
       printf '%s\n' "__unmapped__:$path"
       ;;
-    README.md|LICENSE|assets/*|docs/*|.gitignore|.dockerignore|Dockerfile|docker-compose.yml|docker/*)
+    README.md|LICENSE|assets/*|docs/*|.gitignore|.dockerignore|.env.example|Dockerfile|docker-compose.yml|docker/*)
       ;;
     *)
       families_for_test_reference "$path" \

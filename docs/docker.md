@@ -9,7 +9,7 @@ The `firstmate` service sits on an `internal: true` Docker network, so it has no
 Its only path outward is the `proxy` sidecar, which runs Squid with a default-deny allowlist ([`docker/squid.conf`](../docker/squid.conf)).
 A destination that is not listed is unreachable, and nothing needs to be named to block it.
 
-Currently allowed: Anthropic (including `claude.com`, which Claude Code signs in against), GitHub, ClickUp, MotherDuck, the DuckDB extension host, RubyGems, and the npm and Yarn registries.
+Currently allowed: Anthropic (including `claude.com`, which Claude Code signs in against), GitHub, ClickUp, MotherDuck, the DuckDB extension host, Omni (`sternrisk.omniapp.co`), RubyGems, and the npm and Yarn registries.
 Everything else is refused.
 Each tool the container needs is installed at build time so a normal session never asks for one.
 The three package registries are the deliberate runtime exception: a project's dependencies come from its own `Gemfile.lock` and `yarn.lock`, which no image can be built ahead of.
@@ -48,20 +48,16 @@ Every credential arrives as an environment variable and is passed by reference; 
 | `MOTHERDUCK_TOKEN` | MotherDuck MCP tools. |
 | `FM_CLICKUP_TASK` | Task that captain notifications comment on. |
 | `FM_CLICKUP_MENTION_USER_ID` | Mentioned on each notification so ClickUp sends alert mail. |
+| `OMNI_API_TOKEN`, `OMNI_BASE_URL` | Omni access, for which the allowlist permits `sternrisk.omniapp.co`. |
 
 Scope the GitHub token deliberately: it can push wherever it has reach, so a repository that must never be written should be granted read access or left out entirely.
 
 ## Setup
 
-Put the variables above in a local `.env` beside `docker-compose.yml` (it is gitignored), then:
+Copy [`.env.example`](../.env.example) to a local `.env` beside `docker-compose.yml` (it is gitignored) and fill it in.
+`GH_TOKEN` is the only variable compose requires; the rest are optional and documented in that template.
 
-```sh
-docker compose build
-docker compose up -d
-docker compose exec firstmate tmux attach -t firstmate
-```
-
-Inside the session, start firstmate the usual way with `bin/fm-session-start.sh`.
+The build and attach commands, and the daily working loop, live in the [README's quick start](../README.md#quick-start).
 
 ### Signing in without an API key
 
