@@ -1,17 +1,32 @@
-FROM node:22-bookworm-slim
+FROM ruby:3.3.6-slim-bookworm AS ruby
+
+FROM node:24-bookworm-slim
 
 ARG TASKS_AXI_VERSION=0.2.5
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash git tmux jq curl lsof procps ca-certificates python3 python3-venv less \
+      build-essential pkg-config \
+      libyaml-dev libffi-dev libssl-dev zlib1g-dev libgmp-dev libreadline-dev \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
          -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
          > /etc/apt/sources.list.d/github-cli.list \
-    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+         -o /usr/share/keyrings/pgdg-archive-keyring.asc \
+    && echo "deb [signed-by=/usr/share/keyrings/pgdg-archive-keyring.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+         > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+         gh postgresql-client-17 libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --shell /bin/bash fm
+
+COPY --from=ruby /usr/local /usr/local
+ENV GEM_HOME=/usr/local/bundle \
+    BUNDLE_APP_CONFIG=/usr/local/bundle \
+    PATH=/usr/local/bundle/bin:$PATH
+RUN chown -R fm:fm /usr/local/bundle
 
 RUN npm install -g \
       @anthropic-ai/claude-code \

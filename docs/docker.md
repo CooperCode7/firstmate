@@ -9,12 +9,32 @@ The `firstmate` service sits on an `internal: true` Docker network, so it has no
 Its only path outward is the `proxy` sidecar, which runs Squid with a default-deny allowlist ([`docker/squid.conf`](../docker/squid.conf)).
 A destination that is not listed is unreachable, and nothing needs to be named to block it.
 
-Currently allowed: Anthropic (including `claude.com`, which Claude Code signs in against), GitHub, ClickUp, MotherDuck, and the DuckDB extension host.
-Everything else, including every package registry at runtime, is refused.
+Currently allowed: Anthropic (including `claude.com`, which Claude Code signs in against), GitHub, ClickUp, MotherDuck, the DuckDB extension host, RubyGems, and the npm and Yarn registries.
+Everything else is refused.
 Each tool the container needs is installed at build time so a normal session never asks for one.
+The three package registries are the deliberate runtime exception: a project's dependencies come from its own `Gemfile.lock` and `yarn.lock`, which no image can be built ahead of.
 
 Project code is cloned fresh inside the container.
 No host repository is mounted, and the container authenticates to GitHub as itself.
+
+## Ruby and Rails
+
+Ruby 3.3.6 is copied in from the official `ruby:3.3.6-slim-bookworm` image, so the version matches what a Rails project like stern-liability pins and Bundler accepts.
+The base image is Node 24 for the same reason: stern-liability's `package.json` declares `"node": "24.x"` and Yarn refuses to install against anything older.
+The image also carries the toolchain native gems need (`build-essential`, `pkg-config`, `libpq-dev`, `libyaml-dev`, `libffi-dev`, `libssl-dev`, `zlib1g-dev`, `libgmp-dev`, `libreadline-dev`), PostgreSQL 17's `psql` and `pg_dump`, and the Node base image's own Yarn 1.22.22, the version stern-liability pins.
+`GEM_HOME` is `/usr/local/bundle`, owned by the runtime user, so `bundle install` works without elevation.
+
+Two sidecars back the Rails environment, both on the sealed internal network with no route anywhere:
+
+| Service | Reached as | Wired in by |
+| --- | --- | --- |
+| `postgres` (17-alpine, trust auth, `pgdata` volume) | `PGHOST=postgres`, `PGUSER=postgres` | Rails picks these up for the `development` and `test` databases, which name no host of their own |
+| `redis` (7-alpine) | `REDIS_URL=redis://redis:6379/0` | Sidekiq and any direct Redis client |
+
+Postgres 17 is deliberate: stern-liability's `db/structure.sql` is dumped from a version 17 server and sets `transaction_timeout`, which older servers reject outright.
+The client tools and `libpq` come from the PostgreSQL project's own apt repository rather than Debian's, whose version 15 refuses that dump.
+The database is local and empty on first start; create and migrate it the usual way.
+Heroku is unreachable from the sealed network and remains out of bounds, so production data is never a source here.
 
 ## Credentials
 

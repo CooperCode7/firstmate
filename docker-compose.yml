@@ -12,12 +12,17 @@ services:
     build: .
     depends_on:
       - proxy
+      - postgres
+      - redis
     environment:
       HTTP_PROXY: http://proxy:3128
       HTTPS_PROXY: http://proxy:3128
       http_proxy: http://proxy:3128
       https_proxy: http://proxy:3128
-      NO_PROXY: localhost,127.0.0.1,proxy
+      NO_PROXY: localhost,127.0.0.1,proxy,postgres,redis
+      PGHOST: postgres
+      PGUSER: postgres
+      REDIS_URL: redis://redis:6379/0
       GH_TOKEN: ${GH_TOKEN:?set GH_TOKEN to a fine-grained token scoped to the repos agents may touch}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLICKUP_API_KEY: ${CLICKUP_API_KEY:-}
@@ -51,6 +56,22 @@ services:
     init: true
     restart: unless-stopped
 
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - sealed
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - sealed
+    restart: unless-stopped
+
 networks:
   # No external route: the firstmate service can only reach the proxy.
   sealed:
@@ -59,3 +80,4 @@ networks:
 
 volumes:
   fmhome:
+  pgdata:
