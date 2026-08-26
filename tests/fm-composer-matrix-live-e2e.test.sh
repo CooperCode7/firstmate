@@ -42,17 +42,6 @@ ZELLIJ_SESSION="fm-cmx-live-zj-$$"
 CHECKED=0
 FAILED=0
 
-fail() { printf 'not ok - %s\n' "$1" >&2; cleanup; exit 1; }
-pass() { printf 'ok - %s\n' "$1"; }
-note() { printf '# %s\n' "$1"; }
-
-cleanup() {
-  tmux -L "$SOCKET" kill-server 2>/dev/null || true
-  [ -z "${ZJ_BG:-}" ] || kill "$ZJ_BG" 2>/dev/null || true
-  if command -v zellij >/dev/null 2>&1; then
-    zellij delete-session --force "$ZELLIJ_SESSION" >/dev/null 2>&1 || true
-  fi
-}
 trap cleanup EXIT
 
 # The library under test, driven against the private socket through a PATH

@@ -24,10 +24,6 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
-# shellcheck source=bin/fm-secondmate-parent-lib.sh
-. "$SCRIPT_DIR/fm-secondmate-parent-lib.sh"
-# shellcheck source=bin/fm-secondmate-registry-lib.sh
-. "$SCRIPT_DIR/fm-secondmate-registry-lib.sh"
 
 MODE=
 YOLO=

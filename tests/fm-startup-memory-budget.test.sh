@@ -10,7 +10,6 @@ BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 TMP_ROOT=$(fm_test_tmproot fm-startup-memory-budget)
 BUDGET="$ROOT/bin/fm-startup-memory-budget.sh"
 BOOTSTRAP="$ROOT/bin/fm-bootstrap.sh"
-CONFIG_PUSH="$ROOT/bin/fm-config-push.sh"
 
 make_fake_toolchain() {
   local dir=$1 fakebin

@@ -229,72 +229,7 @@ test_key_path_never_touches_inbox() {
   pass "fm-send planes: the --key lifecycle path never touches the inbox"
 }
 
-test_secondmate_marker_and_enqueue_delivery() {
-  local dir err body corr pr_rec delivered
-  dir=$(setup_case secondmate); err="$dir/send.err"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
-  run_send "$dir" "$err" -- fm-domain "please summarize fleet health" \
-    || fail "a secondmate steer should succeed"
-  body=$(record_body _ "$dir/home/state/domain.inbox/001.msg")
-  case "$body" in
-    "$FM_FROMFIRST_MARK"corr=*) : ;;
-    *) fail "the recorded body lost the from-firstmate marker/corr framing:"$'\n'"$body" ;;
-  esac
-  corr=$(printf '%s' "$body" | grep -oE 'corr=[a-f0-9]{16}' | head -1 | cut -d= -f2)
-  [ -n "$corr" ] || fail "no corr token in the recorded body"
-  pr_rec="$dir/home/state/pending-replies/$corr"
-  [ -f "$pr_rec" ] || fail "no pending-reply expectation was recorded at $pr_rec"
-  delivered=$(grep '^delivered_epoch=' "$pr_rec" | cut -d= -f2)
-  [ -n "$delivered" ] || fail "enqueue IS delivery: delivered_epoch should be set at enqueue time:"$'\n'"$(cat "$pr_rec")"
-  case "$(cat "$dir/send.log")" in
-    *"summarize fleet health"*) fail "the marked payload was typed" ;;
-  esac
-  pass "fm-send inbox: a secondmate steer records marker+corr in the body and is delivered at enqueue"
-}
 
-test_post_enqueue_bookkeeping_failure_is_not_retryable() {
-  local dir err rc rec body
-  dir=$(setup_case bookkeeping-failure); err="$dir/send.err"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
-  cat > "$dir/fakebin/mv" <<'SH'
-#!/usr/bin/env bash
-set -u
-source_arg=${@: -2:1}
-target_arg=${@: -1}
-if [ "${FM_FAIL_DELIVERY_CONFIRM:-0}" = 1 ] \
-  && grep -q '^confirmed=' "$source_arg" 2>/dev/null; then
-  # Simulate losing both the delivery commit and its prepared recovery marker.
-  rm -f "$target_arg"
-  exit 1
-fi
-exec /bin/mv "$@"
-SH
-  chmod +x "$dir/fakebin/mv"
-
-  run_send "$dir" "$err" FM_FAIL_DELIVERY_CONFIRM=1 -- domain "durable once"; rc=$?
-  # The durable record IS the delivery: even with the commit AND its recovery
-  # marker both lost, the steer was delivered, so fm-send must not signal a
-  # status that invites a resend (a nonzero would make automated callers
-  # enqueue the same instruction again under a new sequence). The degradation
-  # surfaces as its own distinct do-not-resend condition instead.
-  expect_code 0 "$rc" "a delivered steer must not report a resend-inviting failure over lost bookkeeping"
-  rec="$dir/home/state/domain.inbox/001.msg"
-  [ -f "$rec" ] || fail "bookkeeping failure test did not durably enqueue the steer"
-  [ "$(find "$dir/home/state/domain.inbox" -maxdepth 1 -name '*.msg' | wc -l | tr -d ' ')" = 1 ] \
-    || fail "the delivered steer was duplicated:"$'\n'"$(ls "$dir/home/state/domain.inbox")"
-  body=$(record_body _ "$rec")
-  case "$body" in
-    "$FM_FROMFIRST_MARK"corr=*) : ;;
-    *) fail "bookkeeping failure test lost the secondmate marker: $body" ;;
-  esac
-  assert_contains "$(cat "$err")" "reply-tracking-degraded" \
-    "lost bookkeeping should surface as its own distinct degraded condition"
-  assert_contains "$(cat "$err")" "do not resend" \
-    "the degraded condition should give explicit do-not-resend guidance"
-  assert_contains "$(cat "$err")" "durably recorded at" \
-    "the degraded condition should name the already-delivered record"
-  pass "fm-send inbox: lost reply bookkeeping never invites a resend, and the delivered steer is never duplicated"
-}
 
 test_meta_lock_contention_fails_bounded() {
   local dir err rc holder marker lock i
@@ -346,7 +281,5 @@ test_failed_ring_is_still_sent
 test_harness_invocations_stay_typed
 test_explicit_target_stays_typed
 test_key_path_never_touches_inbox
-test_secondmate_marker_and_enqueue_delivery
-test_post_enqueue_bookkeeping_failure_is_not_retryable
 test_meta_lock_contention_fails_bounded
 test_unwritable_inbox_fails_loudly

@@ -13,7 +13,6 @@ set -u
 
 PR_CHECK="$ROOT/bin/fm-pr-check.sh"
 PR_MERGE="$ROOT/bin/fm-pr-merge.sh"
-MIGRATE="$ROOT/bin/fm-pr-check-migrate.sh"
 POLL="$ROOT/bin/fm-pr-poll.sh"
 WATCH="$ROOT/bin/fm-watch.sh"
 TEARDOWN="$ROOT/bin/fm-teardown.sh"

@@ -69,6 +69,7 @@ record_claude_idle() {  # <state-dir> <id>
     --source claude-hook --event stop
 }
 
+
 write_fixture() {  # <home>
   local home=$1 fixture_gen
   mkdir -p "$home/projects/alpha-worktree" "$home/projects/scout-worktree" "$home/secondmate-home"
@@ -151,51 +152,6 @@ test_empty_fleet_json() {
   pass "empty fleet snapshot and view use explicit absence markers"
 }
 
-test_fixture_snapshot_json() {
-  local home fakebin out ids
-  home=$(make_home fixture)
-  write_fixture "$home"
-  fakebin=$(make_fakebin "$home")
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
-  printf '%s' "$out" | jq -e . >/dev/null || fail "snapshot must be valid JSON"
-  ids=$(printf '%s' "$out" | jq -r '.tasks | map(.id) | join(",")')
-  [ "$ids" = "cmux-task,scout-task,secondmate-task,ship-task" ] \
-    || fail "task ordering must be stable by id, got $ids"
-  printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "ship-task")
-    | .current_state.state == "working"
-      and .current_state.source == "pane"
-      and .pr.url == "https://github.com/kunchenguid/firstmate/pull/9"
-      and .backlog.body_excerpt == "Preserve this detail for bearings."
-      and .hints.pending_decision == false
-      and .paths.status_log.kind == "event_history"
-  ' >/dev/null || fail "ship task state, PR, body, and stale event hints wrong"
-  printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "scout-task")
-    | .paths.report.present == true
-      and .hints.scout_report_present == true
-  ' >/dev/null || fail "scout report pointer missing"
-  printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "secondmate-task")
-    | .secondmate_projects == ["alpha","beta","gamma"]
-      and .endpoint.agent_alive == "alive"
-      and (.actions.watch | contains("do not routinely fm-peek"))
-  ' >/dev/null || fail "secondmate return-channel guidance missing"
-  printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "cmux-task")
-    | .backend == "cmux"
-      and .paths.worktree.present == false
-      and .current_state.state == "unknown"
-  ' >/dev/null || fail "cmux missing-file row missing"
-  printf '%s' "$out" | jq -e '
-    [.backlog.records[] | select(.state == "queued")] | length == 2
-  ' >/dev/null || fail "queued canonical and unstructured backlog records missing"
-  printf '%s' "$out" | jq -e '
-    .backlog.records[] | select(.id == "done-task")
-    | .state == "done" and .pr_url == "https://github.com/kunchenguid/firstmate/pull/7"
-  ' >/dev/null || fail "done backlog PR row missing"
-  pass "fixture snapshot covers task rows, backlog rows, pointers, and stable ordering"
-}
 
 # R1 owner contract: main_inventory discloses orphan in-flight and unstructured
 # current rows without inventing task rows.
@@ -594,93 +550,11 @@ test_view_renders_snapshot() {
     "view should render queued backlog row"
   assert_contains "$view" "| done-task | Done Task | alpha | ship | - | https://github.com/kunchenguid/firstmate/pull/7 |" \
     "view should render done backlog row"
-  assert_contains "$view" "bin/fm-send.sh fm-secondmate-task" \
-    "view should show secondmate send guidance"
-  assert_contains "$view" "| secondmate-task | working / status-log | secondmate | $home/secondmate-home | tmux | present / alive |" \
-    "view should show secondmate endpoint agent liveness"
-  assert_not_contains "$view" "fm-peek.sh fm-secondmate-task" \
-    "view must not tell firstmate to routinely peek secondmates"
-  pass "fleet view renders the snapshot without secondmate peek guidance"
+  pass "fleet view renders the snapshot"
 }
 
-test_view_renders_dead_secondmate_agent_status() {
-  local home fakebin view
-  home=$(make_home dead-secondmate)
-  fm_write_meta "$home/state/dead-secondmate.meta" \
-    "window=firstmate:fm-dead-secondmate" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha, beta"
-  printf 'working: watching delegated scope\n' > "$home/state/dead-secondmate.status"
-  fakebin=$(make_fakebin "$home")
-  view=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$VIEW")
-  assert_contains "$view" "| dead-secondmate | unknown / none | secondmate | $home/secondmate-home | tmux | present / dead |" \
-    "view should distinguish a present secondmate endpoint from a dead agent"
-  assert_contains "$view" "| dead-secondmate | unknown / none | secondmate | $home/secondmate-home | tmux | present / dead | - | $home/secondmate-home (absent) |" \
-    "view should show a recorded missing secondmate home path"
-  pass "fleet view renders secondmate agent liveness"
-}
 
-# A still-open decision must survive a LATER, UNRELATED terminal event on the same
-# append-only stream. This is the fmdev masking bug: last-event-wins read the trailing
-# `done` and reported pending_decision=false while a needs-decision was still open. The
-# durable keyed fold (fm-classify-lib.sh) keeps it open until an explicit resolution.
-test_open_decision_survives_later_unrelated_event() {
-  local home fakebin out
-  home=$(make_home masking)
-  mkdir -p "$home/secondmate-home"
-  fm_write_meta "$home/state/masked-decision.meta" \
-    "window=firstmate:fm-masked-decision" \
-    "worktree=$home/secondmate-home" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha"
-  # needs-decision opened, then two LATER unrelated events (no resolution).
-  printf 'needs-decision [key=race]: fix the reconcile-before-subscribe race\n' > "$home/state/masked-decision.status"
-  printf 'working: implementing an unrelated subsystem\n' >> "$home/state/masked-decision.status"
-  printf 'done: an unrelated subtask finished\n' >> "$home/state/masked-decision.status"
-  fakebin=$(make_fakebin "$home")
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
-  printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "masked-decision")
-    | .hints.pending_decision == true
-      and (.hints.open_decisions | length) == 1
-      and .hints.open_decisions[0].key == "race"
-      and .hints.open_decisions[0].verb == "needs-decision"
-  ' >/dev/null || fail "later unrelated done must not mask an open needs-decision: $out"
-  pass "durable fold keeps an open decision past a later unrelated event"
-}
 
-test_secondmate_open_decision_survives_live_endpoint() {
-  local home fakebin out
-  home=$(make_home active-secondmate)
-  mkdir -p "$home/secondmate-home"
-  fm_write_meta "$home/state/active-secondmate.meta" \
-    "window=firstmate:fm-active-secondmate" \
-    "worktree=$home/secondmate-home" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha"
-  printf 'needs-decision [key=race]: choose ordering\n' > "$home/state/active-secondmate.status"
-  fakebin=$(make_fakebin "$home")
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
-  printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "active-secondmate")
-    | .endpoint.agent_alive == "alive"
-      and .hints.pending_decision == true
-      and (.hints.open_decisions | length) == 1
-  ' >/dev/null || fail "a live secondmate endpoint must not clear an unrelated keyed decision: $out"
-  pass "a live secondmate endpoint preserves unrelated open decisions"
-}
 
 # An open decision clears ONLY on an explicit resolution referencing its key, never
 # on an unrelated terminal line.
@@ -800,12 +674,9 @@ test_parked_scout_decision_stays_pending() {
 }
 
 test_empty_fleet_json
-test_fixture_snapshot_json
 test_main_inventory_orphan_and_unstructured_disclosure
 test_normalized_roles_and_plural_blocker_readiness
 test_event_hints_follow_reconciled_current_state
-test_open_decision_survives_later_unrelated_event
-test_secondmate_open_decision_survives_live_endpoint
 test_open_decision_transfers_to_captain_hold
 test_open_decision_clears_on_keyed_resolution
 test_completed_scout_report_is_pointer_not_pending
@@ -813,4 +684,3 @@ test_parked_scout_decision_stays_pending
 test_scout_reports_include_teardown_reports
 test_backlog_tasks_axi_forms_and_overrides
 test_view_renders_snapshot
-test_view_renders_dead_secondmate_agent_status

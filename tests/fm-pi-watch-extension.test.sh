@@ -794,7 +794,6 @@ SH
   chmod +x "$repo/bin/fm-watch-arm.sh"
   # Only "actionable" closes (signal/stale/check/heartbeat) ever reach
   # offerWakeToBranch; only main can repair the watcher cycle
-  # (docs/pi-supervision-branch.md), and default-on eligibility must not
   # change that. A live, always-accepting bus listener proves the negative:
   # even with an acceptor present, a watcher-failure close is never offered.
   out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_WATCH_REARM_RETRY_BASE_MS=5 FM_WATCH_REARM_RETRY_MAX_MS=10 FM_WATCH_REARM_RETRY_LIMIT=2 node --input-type=module 2>&1 <<'EOF'

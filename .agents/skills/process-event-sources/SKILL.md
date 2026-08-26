@@ -41,7 +41,6 @@ The runner then passes each captured result to that source's own adapter `answer
 This is generic: any adapter with an `answers` command works, and the runner still wakes you to act on the result.
 `captain-hold-lifecycle` owns when a binding is required and what the keys must be.
 
-A configured remote secondmate reply source is armed and handled through `bin/fm-procevent-remote-reply.sh`.
 Its header owns exact commands, while the adapter owns cursor continuity, validated deduplicated status ingest, path-confined document fetch, acknowledgement, and re-arming after a good delta.
 A continuity break is escalated once and stays unarmed until an operator deliberately rebases it.
 
@@ -69,9 +68,7 @@ Two rules the commands cannot enforce for you:
 : The named durable result is waiting at `state/procevent-inbox/<source-id>.<sequence>.result`. Read that exact result; separate wakes identify later results independently.
 : **When the adapter owns applying the result, run the adapter, not the generic acknowledgement below.** The `<adapter>` field of the wake decides this, and `remote-reply` is such an adapter: a captured delta is applied only by
   ```sh
-  bin/fm-procevent-remote-reply.sh handle <secondmate-id> <sequence> <result-file>
   ```
-  Here `<secondmate-id>` is the `<source-id>` with its `remote-reply-` prefix removed.
   The runner normally applies the result on capture, but this call is the required idempotent confirmation when the wake remains unacknowledged.
   Never acknowledge a `remote-reply` wake through the generic command, because only the adapter ingests the delta, acknowledges it, and re-arms its source.
   Use the generic path below only after fully handling a result whose adapter has no applying command.

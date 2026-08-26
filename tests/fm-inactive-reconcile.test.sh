@@ -62,22 +62,6 @@ make_world() { # <name>
   : > "$WORLD/forge.log"
 }
 
-bind_secondmate() { # <local|remote>
-  local route=$1
-  printf 'mate\n' > "$MATE/.fm-secondmate-home"
-  if [ "$route" = local ]; then
-    cat > "$MATE/.fm-secondmate-parent" <<EOF
-schema=fm-secondmate-parent.v1
-route=local
-parent_home=$MAIN
-EOF
-  else
-    cat > "$MATE/.fm-secondmate-parent" <<'EOF'
-schema=fm-secondmate-parent.v1
-route=remote
-EOF
-  fi
-}
 
 write_child() { # <home> <id> <status> [spawn-gen]
   local home=$1 id=$2 status=$3 spawn_gen=${4:-s${BASHPID:-$$}.$RANDOM}
@@ -139,158 +123,6 @@ test_main_direct_terminal_presentation_receipt() {
   pass "main direct terminal presentation has a durable receipt"
 }
 
-# A secondmate independently reports a genuinely terminal inactive child.
-test_local_secondmate_reports_terminal_child() {
-  make_world local; bind_secondmate local; write_child "$MATE" child 'done: PR https://example.test/owner/repo/pull/1 checks green'
-  FM_FAKE_CREW_STATE='done' run_reconcile "$MATE" --startup
-  grep -Fq 'done [key=inactive-outcome-mate-child-done]:' "$MAIN/state/mate.status" \
-    || fail "secondmate did not append its durable parent report"
-  [ "$(outcome_count "$MATE" reported)" = 1 ] || fail "secondmate report receipt was not durable"
-  pass "secondmate reports its own inactive terminal child"
-}
-
-test_local_secondmate_rejects_relative_parent_home() {
-  make_world relative-parent; bind_secondmate local
-  printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=relative-parent\n' \
-    > "$MATE/.fm-secondmate-parent"
-  write_child "$MATE" child 'failed: terminal'
-  (cd "$WORLD" && FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup)
-  [ ! -e "$WORLD/relative-parent/state/mate.status" ] \
-    || fail "relative parent home received a false durable report"
-  [ "$(outcome_count "$MATE" reported)" = 0 ] \
-    || fail "relative parent route was recorded as reported"
-  [ "$(outcome_count "$MATE" pending)" = 1 ] \
-    || fail "failed relative parent route did not retain its pending receipt"
-  [ "$(wake_count "$MATE" 'inactive-reconcile:')" = 1 ] \
-    || fail "failed relative parent route did not surface a recovery notice"
-  pass "relative local parent homes fail closed"
-}
-
-# A present invalid identity marker cannot turn a secondmate home into a main
-# home. The original child state remains available after the routing alarm.
-test_invalid_secondmate_marker_blocks_routing() {
-  local kind out target
-  for kind in malformed symlink; do
-    make_world "invalid-marker-$kind"
-    write_child "$MATE" child 'failed: terminal'
-    if [ "$kind" = malformed ]; then
-      printf '../main\n' > "$MATE/.fm-secondmate-home"
-    else
-      target="$WORLD/marker-target"
-      printf 'mate\n' > "$target"
-      ln -s "$target" "$MATE/.fm-secondmate-home"
-    fi
-
-    out=$(FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup)
-    printf '%s\n' "$out" | grep -Fq 'inactive terminal outcomes remain unreconciled: invalid .fm-secondmate-home marker' \
-      || fail "$kind secondmate marker did not surface the blocked terminal obligation"
-    [ "$(outcome_count "$MATE" pending)" = 0 ] \
-      || fail "$kind secondmate marker created a main-home pending receipt"
-    ! grep -Fq 'inactive-outcome:' "$MATE/state/.wake-queue" 2>/dev/null \
-      || fail "$kind secondmate marker routed a captain presentation wake"
-    [ -f "$MATE/state/child.meta" ] && [ -f "$MATE/state/child.status" ] \
-      || fail "$kind secondmate marker lost the terminal obligation"
-  done
-  pass "invalid secondmate markers block routing and surface the obligation"
-}
-
-# A remote child route writes the existing mirror input once even across restarts.
-test_remote_parent_reply_is_idempotent() {
-  make_world remote; bind_secondmate remote; write_child "$MATE" child 'done: green'
-  FM_FAKE_CREW_STATE='done' run_reconcile "$MATE" --startup
-  FM_FAKE_CREW_STATE='done' run_reconcile "$MATE" --startup
-  [ "$(grep -c 'inactive-outcome-mate-child-done' "$MATE/state/parent-replies.status")" = 1 ] \
-    || fail "remote parent reply was not restart-idempotent"
-  [ "$(outcome_count "$MATE" reported)" = 1 ] || fail "remote parent report receipt missing"
-  pass "remote parent-replies mirror input is durable and idempotent"
-}
-
-# Reusing a task id creates a separate receipt for the new spawned worker even
-# when its terminal state and status text match the retired worker exactly.
-test_reused_task_id_reports_each_incarnation() {
-  make_world reused-id; bind_secondmate remote
-  write_child "$MATE" child 'failed: terminal' spawn-one
-  FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup
-  rm -f "$MATE/state/child.meta" "$MATE/state/child.status" "$MATE/state/child.turn-ended"
-  write_child "$MATE" child 'failed: terminal' spawn-two
-  FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup
-  [ "$(outcome_count "$MATE" reported)" = 2 ] \
-    || fail "reused task id collided with the retired incarnation receipt"
-  [ "$(grep -c 'inactive-outcome-mate-child-failed' "$MATE/state/parent-replies.status")" = 2 ] \
-    || fail "reused task id did not produce an independent parent report"
-  pass "reused task ids retain per-incarnation terminal receipts"
-}
-
-# Legacy metadata has no generation, so its stable per-spawn temp root preserves
-# the same receipt identity across supported atomic metadata rewrites.
-test_legacy_metadata_rewrite_keeps_receipt_identity() {
-  local meta tmp
-  make_world legacy-rewrite; bind_secondmate remote
-  write_child "$MATE" child 'failed: terminal' spawn-old
-  meta="$MATE/state/child.meta"
-  tmp="$MATE/state/.child.meta.legacy"
-  awk '$0 !~ /^spawn_gen=/' "$meta" > "$tmp"
-  printf 'tasktmp=/tmp/fm-child\n' >> "$tmp"
-  mv "$tmp" "$meta"
-  age "$meta"
-
-  FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup
-  awk '{ print }' "$meta" > "$tmp"
-  mv "$tmp" "$meta"
-  age "$meta"
-  FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup
-
-  [ "$(outcome_count "$MATE" reported)" = 1 ] \
-    || fail "legacy metadata rewrite changed the terminal receipt identity"
-  [ "$(grep -c 'inactive-outcome-mate-child-failed' "$MATE/state/parent-replies.status")" = 1 ] \
-    || fail "legacy metadata rewrite duplicated the parent report"
-  pass "legacy metadata rewrites preserve terminal receipt identity"
-}
-
-# Reconciliation snapshots terminal state and incarnation under the same task
-# lifecycle lock used by relaunch metadata publication.
-test_relaunch_cannot_replace_metadata_during_state_snapshot() {
-  local recon_pid update_pid record i
-  make_world relaunch-race; bind_secondmate remote
-  write_child "$MATE" child 'failed: terminal' spawn-old
-  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
-#!/usr/bin/env bash
-: > "${FM_RACE_WORLD:?}/state-started"
-while [ ! -e "$FM_RACE_WORLD/state-release" ]; do sleep 0.05; done
-printf 'state: failed · source: fake\n'
-SH
-  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
-
-  FM_RACE_WORLD="$WORLD" run_reconcile "$MATE" --startup &
-  recon_pid=$!
-  i=0
-  while [ "$i" -lt 40 ] && [ ! -e "$WORLD/state-started" ]; do sleep 0.05; i=$((i + 1)); done
-  [ -e "$WORLD/state-started" ] || fail "reconciliation did not begin its state snapshot"
-
-  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" bash -c '
-    . "$1/bin/fm-wake-lib.sh"
-    meta="$FM_STATE_OVERRIDE/child.meta"
-    lock=$(fm_meta_lock_path "$meta")
-    fm_lock_acquire_wait "$lock"
-    awk '\''{ sub(/^spawn_gen=.*/, "spawn_gen=spawn-new"); print }'\'' "$meta" > "$meta.tmp"
-    mv "$meta.tmp" "$meta"
-    printf "working: replacement active\n" > "$FM_STATE_OVERRIDE/child.status"
-    : > "$2/meta-updated"
-    fm_lock_release "$lock"
-  ' _ "$ROOT" "$WORLD" &
-  update_pid=$!
-  i=0
-  while [ "$i" -lt 10 ] && [ ! -e "$WORLD/meta-updated" ]; do sleep 0.05; i=$((i + 1)); done
-  : > "$WORLD/state-release"
-  wait "$recon_pid" || fail "reconciliation failed during relaunch race"
-  wait "$update_pid" || fail "metadata replacement failed during relaunch race"
-
-  record=$(find "$MATE/state/terminal-outcomes" -type f -name '*.reported' | head -1)
-  [ -n "$record" ] || fail "terminal snapshot did not produce a receipt"
-  grep -Fxq 'incarnation=spawn-old' "$record" \
-    || fail "terminal result was attributed to replacement metadata"
-  pass "relaunch cannot replace metadata during terminal snapshot"
-}
 
 # Heartbeat backoff state is deliberately irrelevant to the independent cadence.
 test_heartbeat_cap_does_not_delay_reconciliation() {
@@ -328,35 +160,6 @@ test_nonterminal_and_captain_held_states_do_not_report() {
   pass "nonterminal and captain-held workers remain outside inactive terminal reporting"
 }
 
-# The actual watcher poll invokes the helper, while an idle secondmate remains
-# exempt from wedge escalation and emits no false wake.
-test_watcher_hook_and_idle_secondmate_exemption() {
-  local out pid i
-  make_world watcher; write_child "$MAIN" child 'done: green'; prime_seen "$MAIN/state" "$MAIN/state/child.status"
-  out="$WORLD/watch.out"
-  PATH="$WORLD/fakebin:$PATH" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" \
-    FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" \
-    FM_FORGE_LOG="$WORLD/forge.log" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_FAKE_CREW_STATE='done' "$WATCH" > "$out" 2>&1 &
-  pid=$!
-  i=0
-  while [ "$i" -lt 40 ]; do
-    kill -0 "$pid" 2>/dev/null || break
-    [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 1 ] && break
-    sleep 0.1
-    i=$((i + 1))
-  done
-  wait "$pid" 2>/dev/null || true
-  grep -Fq 'check: inactive-outcome' "$out" || fail "watcher did not surface its reconciliation result"
-
-  make_world idle-secondmate; bind_secondmate local; write_mate_meta; prime_seen "$MAIN/state" "$MAIN/state/mate.status"
-  PATH="$WORLD/fakebin:$PATH" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$WORLD/idle.out" 2>&1 &
-  pid=$!; sleep 2; kill -0 "$pid" 2>/dev/null || fail "idle secondmate watcher exited unexpectedly"; reap "$pid"
-  grep -F 'stale:' "$WORLD/idle.out" >/dev/null && fail "idle secondmate was treated as a wedge"
-  [ ! -s "$MAIN/state/.wake-queue" ] || fail "idle secondmate emitted a false wake"
-  pass "watcher hook wakes for terminal loss and preserves idle secondmate exemption"
-}
 
 # A stalled authoritative state read consumes only the aggregate scan budget.
 # The durable scan position lets the next invocation reach the following child.
@@ -411,29 +214,6 @@ test_full_scan_budget_includes_wake_lock_wait() {
   pass "aggregate scan budget includes durable wake operations"
 }
 
-test_notice_recovery_does_not_duplicate_wake() {
-  local record err seq generation
-  make_world notice-recovery; bind_secondmate remote
-  printf 'schema=fm-secondmate-parent.v1\nroute=invalid\n' > "$MATE/.fm-secondmate-parent"
-  write_child "$MATE" child 'failed: terminal'
-  FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup
-  [ "$(wake_count "$MATE" 'inactive-reconcile:')" = 1 ] || fail "parent-report failure did not queue one notice"
-
-  record=$(find "$MATE/state/terminal-outcomes" -type f -name '*.pending' | head -1)
-  awk '{ sub(/^notice_emitted=1$/, "notice_emitted=0"); print }' "$record" > "$record.tmp"
-  mv "$record.tmp" "$record"
-  FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup
-  [ "$(wake_count "$MATE" 'inactive-reconcile:')" = 1 ] || fail "recovery duplicated an already queued notice"
-
-  err="$WORLD/drain.err"
-  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" "$DRAIN" >/dev/null 2> "$err"
-  seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
-  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
-  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" "$DRAIN" --ack-through "$seq" --recovery-generation "$generation"
-  FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup
-  [ "$(wake_count "$MATE" 'inactive-reconcile:')" = 0 ] || fail "acknowledged notice was emitted again"
-  pass "notice recovery remains idempotent across queue acknowledgement"
-}
 
 # Forge command shims fail loudly. A successful scan proves this path never uses
 # them while reconciling a local terminal outcome.
@@ -445,20 +225,11 @@ test_reconciliation_never_calls_forge() {
 }
 
 test_main_direct_terminal_presentation_receipt
-test_local_secondmate_reports_terminal_child
-test_local_secondmate_rejects_relative_parent_home
-test_invalid_secondmate_marker_blocks_routing
-test_remote_parent_reply_is_idempotent
-test_reused_task_id_reports_each_incarnation
-test_legacy_metadata_rewrite_keeps_receipt_identity
-test_relaunch_cannot_replace_metadata_during_state_snapshot
 test_heartbeat_cap_does_not_delay_reconciliation
 test_scan_marker_replaces_symlink_safely
 test_nonterminal_and_captain_held_states_do_not_report
-test_watcher_hook_and_idle_secondmate_exemption
 test_stalled_state_read_is_bounded_and_scan_progresses
 test_full_scan_budget_includes_wake_lock_wait
-test_notice_recovery_does_not_duplicate_wake
 test_reconciliation_never_calls_forge
 
 echo "all inactive reconciliation tests passed"

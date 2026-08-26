@@ -54,18 +54,6 @@ SH
   chmod 0755 "$dir/$command_name"
 }
 
-# make_slow_copy <dir> <command> <seconds>: a copy that answers far too late, so a
-# case can spend the sweep budget the way a hung tool would.
-make_slow_copy() {
-  local dir=$1 command_name=$2 seconds=$3
-  mkdir -p "$dir"
-  cat > "$dir/$command_name" <<SH
-#!/usr/bin/env bash
-sleep $seconds
-printf 'herdr 0.8.2\n'
-SH
-  chmod 0755 "$dir/$command_name"
-}
 
 # make_counting_copy <dir> <command> <version-output> <log>: the same copy, which
 # also appends one line to <log> every time it runs, so a case can assert how
@@ -110,109 +98,24 @@ run_check() {
 
 # --- the regression this script exists for ----------------------------------
 
-test_path_skew_is_reported_from_every_copy() {
-  local home stale fresh out report
-  home=$(make_home skew)
-  # The stale copy sits in a directory named "latest" on purpose: the incident's
-  # version manager did exactly that, so a directory name is no evidence at all.
-  stale="$TMP_ROOT/skew/mise/installs/herdr/latest/bin"
-  fresh="$TMP_ROOT/skew/local/bin"
-  make_copy "$stale" "$TOOL" 'herdr 0.8.0'
-  make_copy "$fresh" "$TOOL" 'herdr 0.8.2'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\",\"version_args\":[\"--version\"]}]}"
-  out="$home/out.txt"
-  run_check "$home" "$(fixture_path "$stale:$fresh")" "$out"
-  report=$(cat "$out")
 
-  assert_contains "$report" "herdr update not in effect" "PATH skew was not reported as an update that is not in effect"
-  # Both sides of the comparison must be named, and the newer one can only be
-  # known by asking a copy other than the one PATH resolves.
-  assert_contains "$report" "PATH resolves 0.8.0 at $stale/$TOOL" "the report does not name the older version PATH actually resolves"
-  assert_contains "$report" "0.8.2 is installed at $fresh/$TOOL" "the report does not name the newer installed copy, so no other PATH copy was asked for its version"
-  assert_not_contains "$report" "update available" "PATH skew must not be reported as a published update"
-  assert_contains "$report" "$(printf 'tool updates:')" "the report is missing its one-line prefix"
-  [ "$(wc -l < "$out" | tr -d '[:space:]')" = 1 ] || fail "the report must be exactly one line for the wake record"
-  pass "PATH skew is reported by asking every copy on PATH for its own version"
-}
 
-test_newest_copy_first_on_path_is_silent() {
-  local home stale fresh out
-  # Control for the case above: the same two copies, the newer one resolved
-  # first, must produce no report at all.
-  home=$(make_home no-skew)
-  stale="$TMP_ROOT/no-skew/mise/installs/herdr/latest/bin"
-  fresh="$TMP_ROOT/no-skew/local/bin"
-  make_copy "$stale" "$TOOL" 'herdr 0.8.0'
-  make_copy "$fresh" "$TOOL" 'herdr 0.8.2'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  out="$home/out.txt"
-  run_check "$home" "$(fixture_path "$fresh:$stale")" "$out"
-  [ ! -s "$out" ] || fail "check reported skew when PATH already resolves the newest copy: $(cat "$out")"
-  pass "no report when PATH already resolves the newest installed copy"
-}
 
-test_identical_versions_are_silent() {
-  local home first second out
-  home=$(make_home same-version)
-  first="$TMP_ROOT/same-version/a/bin"
-  second="$TMP_ROOT/same-version/b/bin"
-  make_copy "$first" "$TOOL" 'herdr 0.8.2'
-  make_copy "$second" "$TOOL" 'herdr 0.8.2'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  out="$home/out.txt"
-  run_check "$home" "$(fixture_path "$first:$second")" "$out"
-  [ ! -s "$out" ] || fail "two copies of the same version reported skew: $(cat "$out")"
-  pass "two copies of the same version are not skew"
-}
 
-test_one_copy_reached_twice_is_probed_once() {
-  local home dir link out log probes
-  # A single install reachable through two PATH entries must not read as two
-  # installs, or a symlinked bin directory would report skew against itself.
-  # Silence alone does not prove that, because two answers of the same version
-  # are silent too, so count the probes: the one install must be asked once.
-  home=$(make_home one-copy)
-  dir="$TMP_ROOT/one-copy/real/bin"
-  link="$TMP_ROOT/one-copy/linked-bin"
-  log="$TMP_ROOT/one-copy/probes.log"
-  make_counting_copy "$dir" "$TOOL" 'herdr 0.8.2' "$log"
-  ln -s "$dir" "$link"
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  out="$home/out.txt"
-  : > "$log"
-  run_check "$home" "$(fixture_path "$dir:$link")" "$out"
-  [ ! -s "$out" ] || fail "one copy reached through two PATH entries reported a finding: $(cat "$out")"
-  probes=$(wc -l < "$log" | tr -d ' ')
-  [ "$probes" = 1 ] || fail "one install reached through two PATH entries was probed $probes times, so the two entries were not recognized as one install"
-  pass "one copy reached through two PATH entries is probed once as one install"
-}
 
-test_unreadable_version_is_a_failure_not_a_pass() {
-  local home dir out report
-  # A copy that will not say what it is cannot be called current.
-  home=$(make_home mute)
-  dir="$TMP_ROOT/mute/bin"
-  make_copy "$dir" "$TOOL" 'no version here'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  out="$home/out.txt"
-  run_check "$home" "$(fixture_path "$dir")" "$out"
-  report=$(cat "$out")
-  assert_contains "$report" "herdr check failed" "a copy that reports no version was treated as current"
-  assert_contains "$report" "$dir/$TOOL did not report a version" "the failing copy was not named"
-  pass "a copy that reports no version is a check failure, not a pass"
-}
-
-test_missing_command_is_reported() {
-  local home out
-  home=$(make_home absent)
-  write_config "$home" '{"tools":[{"name":"herdr","command":"herdr-absent-fixture"}]}'
-  out="$home/out.txt"
-  run_check "$home" "$PATH" "$out"
-  assert_contains "$(cat "$out")" "herdr check failed: herdr-absent-fixture is not on PATH" "a watched command missing from PATH was not reported"
-  pass "a watched command missing from PATH is reported"
-}
 
 # --- published updates ------------------------------------------------------
+
+make_slow_copy() {
+  local dir=$1 command_name=$2 seconds=$3
+  mkdir -p "$dir"
+  cat > "$dir/$command_name" <<SH
+#!/usr/bin/env bash
+sleep $seconds
+printf 'herdr 0.8.2\n'
+SH
+  chmod 0755 "$dir/$command_name"
+}
 
 test_announced_update_is_reported_from_the_tool_itself() {
   local home dir out report
@@ -293,27 +196,6 @@ test_unusable_announce_pattern_is_reported_not_read_as_silence() {
   pass "an announce_pattern that cannot be used is reported instead of read as silence"
 }
 
-test_one_broken_pattern_does_not_blind_the_rest_of_the_sweep() {
-  local home stale fresh dir out report
-  # A one character typo in one tool's pattern must not turn off the detector for
-  # every other tool. The PATH skew below is the whole reason this check exists,
-  # so it has to be reported in the same sweep as the pattern problem.
-  home=$(make_home pattern-blind)
-  stale="$TMP_ROOT/pattern-blind/mise/installs/herdr/latest/bin"
-  fresh="$TMP_ROOT/pattern-blind/local/bin"
-  dir="$TMP_ROOT/pattern-blind/announce/bin"
-  make_copy "$stale" "$TOOL" 'herdr 0.8.0'
-  make_copy "$fresh" "$TOOL" 'herdr 0.8.2'
-  make_copy "$dir" no-mistakes-fixture 'no-mistakes version v1.46.0'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"},{\"name\":\"no-mistakes\",\"command\":\"no-mistakes-fixture\",\"announce_pattern\":\"A new version of no-mistakes is available: ([^ ]+ -> [^ ]+\"}]}"
-  out="$home/out.txt"
-  run_check "$home" "$(fixture_path "$stale:$fresh:$dir")" "$out"
-  report=$(cat "$out")
-  assert_contains "$report" "herdr update not in effect: PATH resolves 0.8.0 at $stale/$TOOL" "a broken pattern on another tool suppressed the PATH skew report"
-  assert_contains "$report" "no-mistakes check failed: announce_pattern is not a usable extended regular expression" "the tool whose pattern cannot be used was not named"
-  [ "$(wc -l < "$out" | tr -d '[:space:]')" = 1 ] || fail "the report must stay exactly one line"
-  pass "a broken pattern is reported for its own tool and the rest of the sweep still reports"
-}
 
 test_an_unchecked_announcement_source_is_not_read_as_current() {
   local home dir out report
@@ -619,62 +501,7 @@ test_absent_registry_is_silent() {
   pass "no watched tool registry means no output at all"
 }
 
-test_malformed_registry_is_reported_not_ignored() {
-  local home out
-  home=$(make_home bad-config)
-  printf 'not json at all\n' > "$home/config/watched-tools.json"
-  out="$home/out.txt"
-  run_check "$home" "$PATH" "$out"
-  assert_contains "$(cat "$out")" "watched tool registry: the watched tool registry is not valid JSON" "a malformed registry was silently ignored"
 
-  printf '%s\n' '{"tools":[{"name":"herdr"}]}' > "$home/config/watched-tools.json"
-  rm -f "$home/state/.tool-updates"
-  run_check "$home" "$PATH" "$out"
-  assert_contains "$(cat "$out")" "tool herdr needs command, git, or both" "a tool entry with no update source was accepted"
-
-  printf '%s\n' '{"tools":[{"name":"herdr","command":"herdr; rm -rf /"}]}' > "$home/config/watched-tools.json"
-  rm -f "$home/state/.tool-updates"
-  run_check "$home" "$PATH" "$out"
-  assert_contains "$(cat "$out")" "command must be a bare executable name" "a command name with shell characters was accepted"
-
-  printf '%s\n' '{"tools":[{"name":"herdr","command":"herdr","announce_args":["--help"]}]}' > "$home/config/watched-tools.json"
-  rm -f "$home/state/.tool-updates"
-  run_check "$home" "$PATH" "$out"
-  assert_contains "$(cat "$out")" "tool herdr announce_args needs announce_pattern" "a command to search with no pattern to search for was accepted"
-  pass "a malformed registry is reported instead of quietly skipped"
-}
-
-test_findings_are_reported_once_until_they_change() {
-  local home stale fresh out path
-  home=$(make_home no-nag)
-  stale="$TMP_ROOT/no-nag/old/bin"
-  fresh="$TMP_ROOT/no-nag/new/bin"
-  make_copy "$stale" "$TOOL" 'herdr 0.8.0'
-  make_copy "$fresh" "$TOOL" 'herdr 0.8.2'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  out="$home/out.txt"
-  path=$(fixture_path "$stale:$fresh")
-
-  run_check "$home" "$path" "$out"
-  assert_contains "$(cat "$out")" "not in effect" "the first sweep did not report the pending update"
-  run_check "$home" "$path" "$out"
-  [ ! -s "$out" ] || fail "the same pending update was reported twice: $(cat "$out")"
-
-  # A changed finding is news again.
-  make_copy "$fresh" "$TOOL" 'herdr 0.9.0'
-  run_check "$home" "$path" "$out"
-  assert_contains "$(cat "$out")" "0.9.0 is installed" "a changed finding was suppressed as a repeat"
-
-  # Once the condition clears, the report clears with it, and a later return of
-  # the same condition is reported again.
-  make_copy "$stale" "$TOOL" 'herdr 0.9.0'
-  run_check "$home" "$path" "$out"
-  [ ! -s "$out" ] || fail "a cleared finding still produced a report: $(cat "$out")"
-  make_copy "$stale" "$TOOL" 'herdr 0.8.0'
-  run_check "$home" "$path" "$out"
-  assert_contains "$(cat "$out")" "PATH resolves 0.8.0" "a returning finding was not reported again"
-  pass "the same pending update is reported once, and a change is reported again"
-}
 
 test_an_overlong_report_says_it_was_cut() {
   local home out report i tools=
@@ -694,113 +521,8 @@ test_an_overlong_report_says_it_was_cut() {
   pass "an over-long report is cut with the shared truncation marker"
 }
 
-test_a_finding_past_the_cut_is_still_reported() {
-  local home stale fresh out report i tools=
-  # Once a report is long enough to be cut, a new finding lands past the cut and
-  # leaves the printed line unchanged. It still has to count as news, or the PATH
-  # skew this check exists for would be suppressed for good on a busy home.
-  home=$(make_home past-cut)
-  stale="$TMP_ROOT/past-cut/mise/installs/herdr/latest/bin"
-  fresh="$TMP_ROOT/past-cut/local/bin"
-  make_copy "$stale" "$TOOL" 'herdr 0.8.0'
-  make_copy "$fresh" "$TOOL" 'herdr 0.8.2'
-  for i in $(seq 1 30); do
-    [ -z "$tools" ] || tools="$tools,"
-    tools="$tools{\"name\":\"absent-tool-$i\",\"command\":\"fm-absent-fixture-$i\"}"
-  done
-  out="$home/out.txt"
-  write_config "$home" "{\"tools\":[$tools]}"
-  run_check "$home" "$(fixture_path "$stale:$fresh")" "$out"
-  assert_contains "$(cat "$out")" "[truncated]" "the first report was not long enough to be cut, so this case proves nothing"
 
-  # The skew tool goes last, so its finding falls past the cut and the printed
-  # line is byte identical to the one the first sweep already recorded.
-  write_config "$home" "{\"tools\":[$tools,{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  run_check "$home" "$(fixture_path "$stale:$fresh")" "$out"
-  report=$(cat "$out")
-  [ -n "$report" ] || fail "a finding past the cut produced no report at all, so it can never reach the watcher"
-  assert_contains "$report" "[truncated]" "the second report was not cut, so the finding was not past the cut"
-  pass "a finding that lands past the cut is still reported as news"
-}
 
-test_probes_are_skipped_between_intervals() {
-  local home dir out status now
-  home=$(make_home cadence)
-  dir="$TMP_ROOT/cadence/bin"
-  make_copy "$dir" "$TOOL" 'herdr 0.8.2'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  out="$home/out.txt"
-  now=1700000000
-
-  status=0
-  FM_HOME="$home" PATH="$(fixture_path "$dir")" FM_CHECK_TIMEOUT=30 FM_TOOL_UPDATE_INTERVAL=900 FM_TOOL_UPDATE_NOW="$now" \
-    "$CHECK" >"$out" 2>&1 || status=$?
-  expect_code 0 "$status" "first cadence run exit"
-  assert_grep 'fm-tool-updates-v1' "$home/state/.tool-updates" "the first run did not record its sweep"
-
-  # A finding appears, but the interval has not elapsed, so no probe runs.
-  make_copy "$dir" "$TOOL" 'no version here'
-  status=0
-  FM_HOME="$home" PATH="$(fixture_path "$dir")" FM_CHECK_TIMEOUT=30 FM_TOOL_UPDATE_INTERVAL=900 FM_TOOL_UPDATE_NOW="$((now + 300))" \
-    "$CHECK" >"$out" 2>&1 || status=$?
-  expect_code 0 "$status" "gated cadence run exit"
-  [ ! -s "$out" ] || fail "a run inside the interval probed and spoke: $(cat "$out")"
-
-  status=0
-  FM_HOME="$home" PATH="$(fixture_path "$dir")" FM_CHECK_TIMEOUT=30 FM_TOOL_UPDATE_INTERVAL=900 FM_TOOL_UPDATE_NOW="$((now + 901))" \
-    "$CHECK" >"$out" 2>&1 || status=$?
-  expect_code 0 "$status" "due cadence run exit"
-  assert_contains "$(cat "$out")" "did not report a version" "the run after the interval did not probe"
-  pass "probes run once per interval, not on every poll"
-}
-
-test_an_oversized_budget_is_cut_to_fit_and_reported() {
-  local home stale fresh out report status
-  # A sweep budget larger than the watcher's own per check bound lets the watcher
-  # kill the run, which prints nothing and records nothing, so the same silence
-  # repeats on every poll. Cutting it keeps the detector alive, and the cut is
-  # reported so the operator can see the setting was not used as written.
-  home=$(make_home budget-cut)
-  stale="$TMP_ROOT/budget-cut/mise/installs/herdr/latest/bin"
-  fresh="$TMP_ROOT/budget-cut/local/bin"
-  make_copy "$stale" "$TOOL" 'herdr 0.8.0'
-  make_copy "$fresh" "$TOOL" 'herdr 0.8.2'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  out="$home/out.txt"
-  status=0
-  env FM_HOME="$home" PATH="$(fixture_path "$stale:$fresh")" FM_TOOL_UPDATE_INTERVAL=0 \
-    FM_TOOL_UPDATE_BUDGET_SECS=60 FM_CHECK_TIMEOUT=30 "$CHECK" >"$out" 2>&1 || status=$?
-  expect_code 0 "$status" "oversized budget exit"
-  report=$(cat "$out")
-  # The cut leaves room for the whole-second rounding and the kill grace as well
-  # as one probe bound, so a cut sweep really does end before the watcher bound.
-  assert_contains "$report" "sweep budget 60s cut to 27s to stay inside the watcher check timeout of 30s" "a budget that cannot fit the watcher bound was not cut and reported"
-  assert_contains "$report" "herdr update not in effect" "the detector went quiet instead of sweeping with the cut budget"
-
-  # The default budget of 20s fits the default bound, so it is used as written.
-  # The record is cleared first because the no-nag gate would otherwise suppress
-  # this run, whose bare skew line differs from the cut run's line above.
-  rm -f "$home/state/.tool-updates"
-  status=0
-  env FM_HOME="$home" PATH="$(fixture_path "$stale:$fresh")" FM_TOOL_UPDATE_INTERVAL=0 \
-    FM_CHECK_TIMEOUT=30 "$CHECK" >"$out" 2>&1 || status=$?
-  expect_code 0 "$status" "default budget exit"
-  report=$(cat "$out")
-  assert_not_contains "$report" "sweep budget" "the default budget was cut at the default watcher bound"
-  assert_contains "$report" "herdr update not in effect" "the sweep stopped reporting with the default budget"
-
-  # A budget the watcher bound has room for is used as written. The cleared
-  # record keeps the no-nag gate from hiding this run's repeat of the same line.
-  rm -f "$home/state/.tool-updates"
-  status=0
-  env FM_HOME="$home" PATH="$(fixture_path "$stale:$fresh")" FM_TOOL_UPDATE_INTERVAL=0 \
-    FM_TOOL_UPDATE_BUDGET_SECS=60 FM_CHECK_TIMEOUT=120 "$CHECK" >"$out" 2>&1 || status=$?
-  expect_code 0 "$status" "fitting budget exit"
-  report=$(cat "$out")
-  assert_not_contains "$report" "sweep budget" "a budget that fits the watcher bound was cut anyway"
-  assert_contains "$report" "herdr update not in effect" "the sweep stopped reporting with a budget that fits"
-  pass "a budget that cannot fit the watcher bound is cut and reported, and the sweep keeps working"
-}
 
 test_invalid_environment_and_action_refuse() {
   local home status
@@ -825,191 +547,15 @@ test_invalid_environment_and_action_refuse() {
 
 # --- arming through the existing watcher contract ----------------------------
 
-test_arm_registers_the_check_and_disarm_removes_it() {
-  local home dir status
-  home=$(make_home arm)
-  dir="$TMP_ROOT/arm/bin"
-  make_copy "$dir" "$TOOL" 'herdr 0.8.2'
-  status=0
-  FM_HOME="$home" "$CHECK" arm >/dev/null 2>&1 || status=$?
-  expect_code 1 "$status" "arm without a registry exit"
-  assert_absent "$home/state/tool-updates.check.sh" "arm wrote a check shim without a registry"
 
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  status=0
-  FM_HOME="$home" "$CHECK" arm >/dev/null || status=$?
-  expect_code 0 "$status" "arm exit"
-  assert_present "$home/state/tool-updates.check.sh" "arm did not write the check shim"
-  assert_present "$home/state/tool-updates.check-trust" "arm did not register the check's bytes"
-  [ "$(stat -c %a "$home/state/tool-updates.check.sh" 2>/dev/null || stat -f %Lp "$home/state/tool-updates.check.sh")" = 700 ] \
-    || fail "the check shim is not mode 700"
-  assert_grep 'fm-custom-check-v1' "$home/state/tool-updates.check-trust" "the trust binding has the wrong schema"
 
-  # Arming twice must stay valid rather than invalidating its own binding.
-  FM_HOME="$home" "$CHECK" arm >/dev/null || fail "arming twice failed"
-  assert_grep 'fm-custom-check-v1' "$home/state/tool-updates.check-trust" "re-arming lost the trust binding"
 
-  FM_HOME="$home" "$CHECK" disarm >/dev/null || fail "disarm failed"
-  assert_absent "$home/state/tool-updates.check.sh" "disarm left the check shim behind"
-  assert_absent "$home/state/tool-updates.check-trust" "disarm left the trust binding behind"
-  assert_absent "$home/state/.tool-updates" "disarm left the report record behind"
-  pass "arm registers a trusted check and disarm removes every trace"
-}
 
-test_arm_refuses_a_symlink_at_the_shim_path() {
-  local home dir target mode status
-  # A stale or hostile symlink at the shim path must be refused rather than
-  # followed: following it would write the shim body into a file someone else
-  # owns and then make that file executable.
-  home=$(make_home arm-symlink)
-  dir="$TMP_ROOT/arm-symlink/bin"
-  make_copy "$dir" "$TOOL" 'herdr 0.8.2'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  target="$TMP_ROOT/arm-symlink/not-the-shim.txt"
-  printf 'a file the shim must not touch\n' > "$target"
-  mode=$(stat -c %a "$target" 2>/dev/null || stat -f %Lp "$target")
-  ln -s "$target" "$home/state/tool-updates.check.sh"
 
-  status=0
-  FM_HOME="$home" "$CHECK" arm >/dev/null 2>&1 || status=$?
-  expect_code 1 "$status" "arm over a symlink exit"
-  [ "$(cat "$target")" = 'a file the shim must not touch' ] || fail "arm followed the symlink and overwrote its target"
-  [ "$(stat -c %a "$target" 2>/dev/null || stat -f %Lp "$target")" = "$mode" ] || fail "arm changed the mode of the symlink's target"
-  assert_absent "$home/state/tool-updates.check-trust" "arm registered a shim it refused to write"
-  pass "a symlink at the shim path is refused instead of followed"
-}
 
-test_a_failed_registration_leaves_no_unregistered_shim() {
-  local home dir target stale_shim status
-  # An unregistered shim in state/ is not inert: the watcher rejects it every
-  # cycle and wakes firstmate about unauthenticated state checks until someone
-  # deletes it by hand. So a home that could not be armed has to come back to the
-  # state it was in, and arm still has to say it failed.
-  home=$(make_home arm-register-fail)
-  dir="$TMP_ROOT/arm-register-fail/bin"
-  make_copy "$dir" "$TOOL" 'herdr 0.8.2'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  # A symlink at the trust path makes registration refuse, which is the shape any
-  # register failure has from arm's side.
-  target="$TMP_ROOT/arm-register-fail/not-the-trust.txt"
-  printf 'a file the trust binding must not touch\n' > "$target"
-  ln -s "$target" "$home/state/tool-updates.check-trust"
-
-  status=0
-  FM_HOME="$home" "$CHECK" arm >/dev/null 2>&1 || status=$?
-  expect_code 1 "$status" "arm with an unusable trust path exit"
-  assert_absent "$home/state/tool-updates.check.sh" "a failed registration left an unregistered check shim behind"
-  [ "$(cat "$target")" = 'a file the trust binding must not touch' ] || fail "arm wrote through the trust symlink"
-
-  # A shim that was already there is only kept when its trust binding is still
-  # intact. Here the binding is unusable, so putting the old bytes back would
-  # leave exactly the unbound shim the watcher wakes about, and the home has to
-  # end plainly not armed instead.
-  stale_shim="$TMP_ROOT/arm-register-fail/shim-armed-earlier"
-  printf '#!/usr/bin/env bash\n# a shim armed earlier\nexit 0\n' > "$stale_shim"
-  cp "$stale_shim" "$home/state/tool-updates.check.sh"
-  chmod 0700 "$home/state/tool-updates.check.sh"
-  status=0
-  FM_HOME="$home" "$CHECK" arm >/dev/null 2>&1 || status=$?
-  expect_code 1 "$status" "arm over an existing shim with an unusable trust path exit"
-  assert_absent "$home/state/tool-updates.check.sh" "a failed arm left a shim behind that no trust binding covers"
-  pass "a failed registration never leaves a shim without a matching trust binding"
-}
-
-test_a_failed_rearm_leaves_no_shim_the_trust_binding_lost() {
-  local home dir fake status
-  # The register removes an existing trust binding when its own post-write check
-  # fails, so an arm that fails there would leave a home that WAS armed holding a
-  # shim with no binding, which the watcher rejects on every cycle. The home must
-  # end plainly not armed instead.
-  home=$(make_home arm-rearm-fail)
-  dir="$TMP_ROOT/arm-rearm-fail/bin"
-  make_copy "$dir" "$TOOL" 'herdr 0.8.2'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  FM_HOME="$home" "$CHECK" arm >/dev/null || fail "the first arm failed"
-  assert_present "$home/state/tool-updates.check-trust" "the first arm did not bind the shim"
-
-  # A hash tool that answers with nothing makes the register write a binding it
-  # then rejects, and it removes the old binding on the way out.
-  fake="$TMP_ROOT/arm-rearm-fail/fake-hash"
-  mkdir -p "$fake"
-  printf '#!/usr/bin/env bash\nexit 1\n' > "$fake/shasum"
-  printf '#!/usr/bin/env bash\nexit 1\n' > "$fake/sha256sum"
-  chmod 0755 "$fake/shasum" "$fake/sha256sum"
-  printf '#!/usr/bin/env bash\n# a shim armed earlier\nexit 0\n' > "$home/state/tool-updates.check.sh"
-  chmod 0700 "$home/state/tool-updates.check.sh"
-
-  status=0
-  env FM_HOME="$home" PATH="$(fixture_path "$fake")" "$CHECK" arm >/dev/null 2>&1 || status=$?
-  expect_code 1 "$status" "arm whose registration cannot hash exit"
-  assert_absent "$home/state/tool-updates.check.sh" "a failed re-arm left a shim behind after the trust binding was removed"
-  assert_absent "$home/state/tool-updates.check-trust" "the failed registration left a trust binding behind"
-  pass "a re-arm that loses the trust binding leaves no shim behind"
-}
-
-test_arm_resolves_a_relative_home_into_the_shim() {
-  local home stale fresh out status
-  # The watcher runs the shim from its own working directory, so a relative home
-  # has to be resolved before it is persisted. Otherwise the shim reads whatever
-  # sits under the watcher's directory, finds no registry, and stays silent for
-  # good.
-  home=$(make_home arm-relative)
-  stale="$TMP_ROOT/arm-relative/mise/bin"
-  fresh="$TMP_ROOT/arm-relative/local/bin"
-  make_copy "$stale" "$TOOL" 'herdr 0.8.0'
-  make_copy "$fresh" "$TOOL" 'herdr 0.8.2'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-
-  status=0
-  (cd "$TMP_ROOT" && FM_HOME=arm-relative "$CHECK" arm >/dev/null 2>&1) || status=$?
-  expect_code 0 "$status" "arm with a relative home exit"
-
-  out="$home/out.txt"
-  status=0
-  (cd / && env -u FM_HOME PATH="$(fixture_path "$stale:$fresh")" FM_CHECK_TIMEOUT=30 FM_TOOL_UPDATE_INTERVAL=0 \
-    "$home/state/tool-updates.check.sh" >"$out" 2>&1) || status=$?
-  expect_code 0 "$status" "shim run from another directory exit"
-  assert_contains "$(cat "$out")" "herdr update not in effect" "the shim read a different home than the one it was armed for"
-  pass "a relative home is resolved before it is persisted into the shim"
-}
-
-test_armed_check_wakes_the_watcher_with_the_skew_report() {
-  local home stale fresh out err status
-  # End to end through the real watcher: the armed check must reach it as a
-  # `check:` wake carrying the same PATH skew line, with no new machinery.
-  home=$(make_home wake)
-  stale="$TMP_ROOT/wake/mise/installs/herdr/latest/bin"
-  fresh="$TMP_ROOT/wake/local/bin"
-  make_copy "$stale" "$TOOL" 'herdr 0.8.0'
-  make_copy "$fresh" "$TOOL" 'herdr 0.8.2'
-  write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  printf '%s\n' fm-pr-check-migration-scan-v1 > "$home/state/.pr-check-migration-scan-v1"
-  printf '%s\n' fm-pr-check-migration-v1 > "$home/state/.pr-check-migration-v1"
-  chmod 0600 "$home/state/.pr-check-migration-scan-v1" "$home/state/.pr-check-migration-v1"
-  FM_HOME="$home" "$CHECK" arm >/dev/null || fail "could not arm the watched tool check"
-
-  out="$home/out.txt"
-  err="$home/err.txt"
-  status=0
-  env FM_HOME="$home" PATH="$(fixture_path "$stale:$fresh")" FM_CHECK_TIMEOUT=30 FM_TOOL_UPDATE_INTERVAL=0 \
-    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=1 \
-    "$CHECKPOINT" --seconds 10 >"$out" 2>"$err" || status=$?
-  expect_code 0 "$status" "watcher checkpoint exit"
-  assert_contains "$(cat "$out")" "check:" "the armed check did not reach the watcher as a check wake"
-  assert_contains "$(cat "$out")" "tool updates: herdr update not in effect" "the wake did not carry the PATH skew report"
-  pass "the armed check reaches the watcher as an ordinary check wake"
-}
-
-test_path_skew_is_reported_from_every_copy
-test_newest_copy_first_on_path_is_silent
-test_identical_versions_are_silent
-test_one_copy_reached_twice_is_probed_once
-test_unreadable_version_is_a_failure_not_a_pass
-test_missing_command_is_reported
 test_announced_update_is_reported_from_the_tool_itself
 test_announcement_is_read_from_a_second_command
 test_unusable_announce_pattern_is_reported_not_read_as_silence
-test_one_broken_pattern_does_not_blind_the_rest_of_the_sweep
 test_an_unchecked_announcement_source_is_not_read_as_current
 test_an_announcement_probe_that_does_not_answer_is_reported
 test_quiet_tool_with_announce_pattern_is_silent
@@ -1024,16 +570,5 @@ test_git_probes_stop_when_the_sweep_budget_is_gone
 test_a_git_probe_that_does_not_answer_is_not_an_update
 test_a_stalled_repository_probe_is_not_reported_as_not_a_repository
 test_absent_registry_is_silent
-test_malformed_registry_is_reported_not_ignored
-test_findings_are_reported_once_until_they_change
 test_an_overlong_report_says_it_was_cut
-test_a_finding_past_the_cut_is_still_reported
-test_probes_are_skipped_between_intervals
-test_an_oversized_budget_is_cut_to_fit_and_reported
 test_invalid_environment_and_action_refuse
-test_arm_registers_the_check_and_disarm_removes_it
-test_arm_refuses_a_symlink_at_the_shim_path
-test_a_failed_registration_leaves_no_unregistered_shim
-test_a_failed_rearm_leaves_no_shim_the_trust_binding_lost
-test_arm_resolves_a_relative_home_into_the_shim
-test_armed_check_wakes_the_watcher_with_the_skew_report

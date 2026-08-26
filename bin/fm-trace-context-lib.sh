@@ -54,7 +54,6 @@
 #   on/off value, so later config and environment edits take effect only after a
 #   new home session starts.
 #   At launch, the primary propagates config/trace-context into the secondmate
-#   home (FM_INHERITABLE_CONFIG in bin/fm-config-inherit-lib.sh) and passes its
 #   frozen on/off decision into the new process as a non-empty FM_TRACE_CONTEXT
 #   value in the launch prefix (bin/fm-spawn.sh). The Secondmate freezes that
 #   inherited decision when its own home session starts.

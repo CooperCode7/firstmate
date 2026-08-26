@@ -12,7 +12,6 @@
 # There is no separate decision type. A captain call is an ordinary backlog
 # task held for the captain (`tasks-axi hold <id> --kind captain`), and its
 # identity is simply the task id. Older installs created derived
-# `<origin>-decision-<key>` identities through bin/fm-decision-hold.sh; those
 # rows are already plain task ids, so they keep working here unchanged, and
 # the legacy inputs noted below resolve them without a migration.
 # All backlog mutations run in the active FM_HOME, which keeps main-home and
@@ -112,7 +111,6 @@
 # Metadata compatibility: the attestation keeps the historical
 # `decisions_reviewed=1` and `decision_keys=` keys, and an inventory entry that
 # names no existing task resolves through the legacy `<origin>-decision-<entry>`
-# identity, so pre-collapse metadata written by fm-decision-hold.sh verifies
 # unchanged. An entry that exists as a task id is always that task.
 #
 # `diverged` is the read-only guard over the seam between the two records of
@@ -120,7 +118,6 @@
 #
 # Resolution records: the block written into the body names this script, the
 # decision digest, and a `Resolution mode:` of answered, released, or repaired.
-# Records written by the retired fm-decision-hold.sh (routed, declined,
 # answered, repaired) are recognized everywhere a record is read, so nothing
 # already closed needs rewriting.
 set -eu
@@ -263,12 +260,6 @@ origin_exists_here() {  # <origin-id>
   task_show "$1" >/dev/null 2>&1
 }
 
-list_has_key() {  # <comma-list> <key>
-  case ",$1," in
-    *",$2,"*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
 
 sorted_key_union() {  # <comma-list> <newline-or-space-separated-new-keys>
   local existing=$1 new=$2
@@ -300,11 +291,9 @@ origin_open_decisions() {  # <origin-id>
 }
 
 # A resolution record written by this script or by the retired
-# fm-decision-hold.sh. Both carry the same leader-then-captain-decision shape.
 body_has_resolution_record() {  # <task-body>
   case "$1" in
     *"Resolution recorded by fm-captain-hold."*"Captain decision:"*) return 0 ;;
-    *"Resolution recorded by fm-decision-hold."*"Captain decision:"*) return 0 ;;
   esac
   return 1
 }
@@ -730,9 +719,7 @@ command_answers() {
     recorded_digest=$(recorded_decision_digest "$body" || true)
     recorded_mode=$(recorded_resolution_mode "$body" || true)
     if body_has_resolution_record "$body" \
-      && { [ "$recorded_digest" = "$digest" ] \
-        || { case "$body" in *"Resolution recorded by fm-decision-hold."*) true ;; *) false ;; esac \
-          && [ -n "$legacy_digest" ] && [ "$recorded_digest" = "$legacy_digest" ]; }; }; then
+      && [ "$recorded_digest" = "$digest" ]; then
       if { [ -z "$release_flag" ] && [ "$state" = "done" ] && [ "$recorded_mode" != released ]; } \
         || { [ "$release_flag" = --release ] && [ "$state" != "done" ] \
           && [ "$hold_kind" != captain ] && [ "$recorded_mode" = released ]; }; then

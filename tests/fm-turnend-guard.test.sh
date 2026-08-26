@@ -128,7 +128,6 @@ make_primary_dir() {
   printf '%s\n' "$dir"
 }
 
-# Same shape as primary, plus the .fm-secondmate-home marker bin/fm-home-seed.sh
 # writes at seed time (regardless of treehouse-lease or git-clone acquisition).
 make_secondmate_dir() {
   local dir=$1

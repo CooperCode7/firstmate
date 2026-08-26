@@ -49,82 +49,6 @@ make_repo_on_branch() {  # <dir> <branch>
   export FM_FAKE_RUN_HEAD
 }
 
-# A fakebin with a fake `no-mistakes` (serves the env-driven run output) and a
-# fake `tmux` (serves a busy or idle pane). The fake no-mistakes mirrors the real
-# command surface the helper uses: `axi status`, `axi status --run <id>` (the
-# `axi` surface - no runs-listing subcommand exists under it, verified against
-# the real CLI), and the actual top-level run-listing command, `no-mistakes
-# runs --limit N`, which is plain text - no run id, no quoting - serving
-# FM_FAKE_RUNS_LIST verbatim.
-make_fakebin() {  # <dir> -> echoes fakebin path
-  local dir=$1 fb="$1/fakebin"
-  mkdir -p "$fb"
-  cat > "$fb/no-mistakes" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "${1:-}" in
-  axi)
-    shift
-    case "${1:-}" in
-      status)
-        shift
-        if [ "${1:-}" = --run ]; then printf '%s\n' "${FM_FAKE_AXI_STATUS_RUN:-}"
-        else printf '%s\n' "${FM_FAKE_AXI_STATUS:-}"; fi ;;
-      logs)
-        printf '%s\n' "${FM_FAKE_CI_LOGS:-}" ;;
-    esac
-    ;;
-  runs)
-    printf '%s\n' "${FM_FAKE_RUNS_LIST:-}" ;;
-esac
-exit 0
-SH
-  cat > "$fb/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "${1:-}" in
-  display-message)
-    [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
-    printf '%%1\n' ;;
-  capture-pane)
-    [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
-    if [ "${FM_FAKE_BUSY:-0}" = 1 ]; then printf 'work in progress\n%s\n' "${FM_FAKE_BUSY_TEXT:-esc to interrupt}"
-    else printf 'all quiet\n> \n'; fi ;;
-esac
-exit 0
-SH
-  cat > "$fb/herdr" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "${1:-}" in
-  status)
-    [ "${2:-}" = --json ] && {
-      printf '{"client":{"version":"0.7.1","protocol":14},"server":{"running":true}}\n'
-      exit 0
-    } ;;
-  server)
-    exit 0 ;;
-  pane)
-    case "${2:-}" in
-      read)
-        [ "${FM_FAKE_HERDR_MISSING:-0}" = 1 ] && exit 1
-        if [ "${FM_FAKE_HERDR_BUSY:-0}" = 1 ]; then printf 'work in progress\nesc to interrupt\n'
-        else printf 'all quiet\n> \n'; fi
-        exit 0 ;;
-    esac ;;
-  agent)
-    case "${2:-}" in
-      get)
-        [ -n "${FM_FAKE_HERDR_AGENT_STATUS:-}" ] || exit 1
-        printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "$FM_FAKE_HERDR_AGENT_STATUS"
-        exit 0 ;;
-    esac ;;
-esac
-exit 0
-SH
-  chmod +x "$fb/no-mistakes" "$fb/tmux" "$fb/herdr"
-  printf '%s\n' "$fb"
-}
 
 make_no_timeout_toolbin() {  # <dir> -> echoes toolbin path
   local dir=$1 tb="$1/notimeoutbin" tool real
@@ -156,23 +80,6 @@ arm_idle_record() {  # <state-dir> <id>
     --source claude-hook --event stop
 }
 
-# Clear the fake-driver vars and (re-)mark them exported, so the per-test plain
-# assignments below stay exported into the fakes without an `export VAR=$(...)`
-# command-substitution assignment (SC2155).
-reset_fakes() {
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_AXI_STATUS_RUN=""
-  FM_FAKE_RUNS_LIST=""
-  FM_FAKE_BUSY=0
-  FM_FAKE_BUSY_TEXT=
-  FM_FAKE_TMUX_MISSING=0
-  FM_FAKE_HERDR_BUSY=0
-  FM_FAKE_HERDR_MISSING=0
-  FM_FAKE_HERDR_AGENT_STATUS=""
-  FM_FAKE_CI_LOGS=""
-  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING
-  export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_CI_LOGS
-}
 
 # --- run-object fixtures (TOON, as `no-mistakes axi status` emits) -----------
 
@@ -344,6 +251,91 @@ EOF
 
 # ---------------------------------------------------------------------------
 # (a) active run-step is authoritative
+make_fakebin() {  # <dir> -> echoes fakebin path
+  local dir=$1 fb="$1/fakebin"
+  mkdir -p "$fb"
+  cat > "$fb/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-}" in
+  axi)
+    shift
+    case "${1:-}" in
+      status)
+        shift
+        if [ "${1:-}" = --run ]; then printf '%s\n' "${FM_FAKE_AXI_STATUS_RUN:-}"
+        else printf '%s\n' "${FM_FAKE_AXI_STATUS:-}"; fi ;;
+      logs)
+        printf '%s\n' "${FM_FAKE_CI_LOGS:-}" ;;
+    esac
+    ;;
+  runs)
+    printf '%s\n' "${FM_FAKE_RUNS_LIST:-}" ;;
+esac
+exit 0
+SH
+  cat > "$fb/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-}" in
+  display-message)
+    [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
+    printf '%%1\n' ;;
+  capture-pane)
+    [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
+    if [ "${FM_FAKE_BUSY:-0}" = 1 ]; then printf 'work in progress\n%s\n' "${FM_FAKE_BUSY_TEXT:-esc to interrupt}"
+    else printf 'all quiet\n> \n'; fi ;;
+esac
+exit 0
+SH
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-}" in
+  status)
+    [ "${2:-}" = --json ] && {
+      printf '{"client":{"version":"0.7.1","protocol":14},"server":{"running":true}}\n'
+      exit 0
+    } ;;
+  server)
+    exit 0 ;;
+  pane)
+    case "${2:-}" in
+      read)
+        [ "${FM_FAKE_HERDR_MISSING:-0}" = 1 ] && exit 1
+        if [ "${FM_FAKE_HERDR_BUSY:-0}" = 1 ]; then printf 'work in progress\nesc to interrupt\n'
+        else printf 'all quiet\n> \n'; fi
+        exit 0 ;;
+    esac ;;
+  agent)
+    case "${2:-}" in
+      get)
+        [ -n "${FM_FAKE_HERDR_AGENT_STATUS:-}" ] || exit 1
+        printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "$FM_FAKE_HERDR_AGENT_STATUS"
+        exit 0 ;;
+    esac ;;
+esac
+exit 0
+SH
+  chmod +x "$fb/no-mistakes" "$fb/tmux" "$fb/herdr"
+  printf '%s\n' "$fb"
+}
+
+reset_fakes() {
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_AXI_STATUS_RUN=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_BUSY=0
+  FM_FAKE_BUSY_TEXT=
+  FM_FAKE_TMUX_MISSING=0
+  FM_FAKE_HERDR_BUSY=0
+  FM_FAKE_HERDR_MISSING=0
+  FM_FAKE_HERDR_AGENT_STATUS=""
+  FM_FAKE_CI_LOGS=""
+  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING
+  export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_CI_LOGS
+}
+
 test_active_run_is_authoritative() {
   reset_fakes
   local d; d=$(new_case active)
@@ -845,83 +837,8 @@ test_no_run_grok_uses_isolated_fallback() {
   pass "grok still reads working through its isolated rendered-tail fallback"
 }
 
-test_no_run_herdr_unknown_uses_backend_capture() {
-  command -v jq >/dev/null 2>&1 || { pass "herdr pane fallback skipped without jq"; return; }
-  reset_fakes
-  local d; d=$(new_case herdr-busy)
-  make_repo_on_branch "$d/wt" fm/feat-herdr
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-herdr.meta" "window=default:w1:p2" "worktree=$d/wt" "kind=ship" \
-    "backend=herdr" "harness=claude"
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
-  FM_FAKE_HERDR_BUSY=1
-  FM_FAKE_HERDR_AGENT_STATUS=working
-  local out; out=$(run_crew_state "$d" feat-herdr)
-  assert_contains "$out" "state: working" "herdr native busy -> working"
-  assert_contains "$out" "source: pane" "herdr native busy -> pane source"
-  assert_contains "$out" "herdr-native" "the herdr verdict names its native source"
-  pass "herdr's native busy verdict reads working with no record present"
-}
 
-# Regression (2026-07 herdr false-surface incident, now solved semantically):
-# herdr's agent.get reports generation state ("working" only while the model is
-# actively streaming - docs/herdr-backend.md "Busy state"), not "this crew's
-# turn is still in progress". A crew blocked on its own long-running foreground
-# `no-mistakes axi run` (no --yes; blocks until a gate or outcome) is not
-# generating for that whole span, so agent.get reads idle. The crew's own
-# semantic lifecycle record still says busy for the whole turn, and it outranks
-# the narrower native verdict - so the crew is no longer misread as not-working.
-test_no_run_herdr_idle_agent_status_outranked_by_record() {
-  command -v jq >/dev/null 2>&1 || { pass "herdr idle corroboration skipped without jq"; return; }
-  reset_fakes
-  local d; d=$(new_case herdr-idle-busy-record)
-  make_repo_on_branch "$d/wt" fm/feat-herdr-idle
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-herdr-idle.meta" "window=default:w1:p3" "worktree=$d/wt" "kind=ship" \
-    "backend=herdr" "harness=claude"
-  # No run attributable (mirrors a no-mistakes run-step lookup that found no
-  # matching row within the configured runs-list window): the crew's semantic
-  # busy state is the only remaining signal.
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
-  FM_FAKE_HERDR_AGENT_STATUS=idle
-  FM_FAKE_HERDR_BUSY=0
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-herdr-idle)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-herdr-idle busy --gen "$gen" \
-    --source claude-hook --event user-prompt-submit
-  local out; out=$(run_crew_state "$d" feat-herdr-idle)
-  assert_contains "$out" "state: working" "a busy record with herdr idle agent_status -> working"
-  assert_contains "$out" "claude-hook" "the record's source outranks herdr's narrower native verdict"
-  pass "a mid-tool-call crew stays working because its record outranks herdr's generation state"
-}
 
-# The record must not mask a genuinely idle or human-blocked agent: an idle
-# record with idle agent_status still reads not-busy.
-test_no_run_herdr_idle_agent_status_and_idle_record_stays_idle() {
-  command -v jq >/dev/null 2>&1 || { pass "herdr idle+idle-record skipped without jq"; return; }
-  reset_fakes
-  local d; d=$(new_case herdr-idle-idle-record)
-  make_repo_on_branch "$d/wt" fm/feat-herdr-stopped
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-herdr-stopped.meta" "window=default:w1:p4" "worktree=$d/wt" "kind=ship" \
-    "backend=herdr" "harness=claude"
-  printf 'working: implementing\n' > "$d/state/feat-herdr-stopped.status"
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
-  FM_FAKE_HERDR_AGENT_STATUS=idle
-  FM_FAKE_HERDR_BUSY=0
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-herdr-stopped)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-herdr-stopped idle --gen "$gen" \
-    --source claude-hook --event stop
-  local out; out=$(run_crew_state "$d" feat-herdr-stopped)
-  assert_not_contains "$out" "source: pane" "an idle record must not read as busy"
-  assert_contains "$out" "source: status-log" "an idle record falls to the status log"
-  pass "an idle record with idle agent_status stays not-busy (no regression for a human-blocked agent)"
-}
 
 # (g) no run + idle pane -> the status-log verb, as-is
 test_no_run_idle_pane_uses_log() {
@@ -1154,100 +1071,19 @@ test_torn_down_worktree() {
 # A meta recording remote_host= must never be read through the local worktree
 # probe or a local backend adapter: the recorded worktree and pane live on the
 # remote host, and the old local reads misreported a healthy remote mate as
-# "worktree gone". These cases drive the real helper over the real fm-on.sh
 # route with a stubbed ssh transport (FM_SSH_BIN seam): the stub prints
 # FM_FAKE_REMOTE_STATE_OUT as the remote endpoint's recovery-grade state and
 # exits FM_FAKE_SSH_RC.
 
-setup_remote_case() {  # <name> -> echoes case dir with remote meta + registry
-  local d
-  d=$(new_case "$1")
-  mkdir -p "$d/data" "$d/fakebin"
-  fm_write_meta "$d/state/rsm.meta" \
-    "window=remote:rsm" \
-    "endpoint_task_id=rsm" \
-    "worktree=/remote/home/never-locally-present" \
-    "harness=claude" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "remote_host=remote-mac" \
-    "remote_root=/remote/root" \
-    "remote_backend=herdr" \
-    "remote_herdr_session=fm-remote" \
-    "remote_target=fm-remote:w1:p1"
-  cat > "$d/data/secondmates.md" <<EOF
-- rsm - remote test domain (host: remote-mac; root: /remote/root; home: /remote/home; scope: remote testing; projects: alpha; added 2026-08-02)
-EOF
-  cat > "$d/fakebin/fake-ssh" <<'SH'
-#!/usr/bin/env bash
-cat > /dev/null
-[ -z "${FM_FAKE_REMOTE_STATE_OUT:-}" ] || printf '%s\n' "$FM_FAKE_REMOTE_STATE_OUT"
-exit "${FM_FAKE_SSH_RC:-0}"
-SH
-  chmod +x "$d/fakebin/fake-ssh"
-  printf '%s\n' "$d"
-}
 
 run_remote_crew_state() {  # <case-dir> <id>
   PATH="$1/fakebin:$PATH" FM_HOME="$1" FM_STATE_OVERRIDE="$1/state" \
     FM_SSH_BIN="$1/fakebin/fake-ssh" "$CREW_STATE" "$2"
 }
 
-test_remote_alive_with_log_uses_status_log() {
-  reset_fakes
-  local d out rc
-  d=$(setup_remote_case remote-alive-log)
-  make_fakebin "$d" >/dev/null
-  printf 'working: refactoring the quota adapter\n' > "$d/state/rsm.status"
-  out=$(FM_FAKE_REMOTE_STATE_OUT=alive FM_FAKE_SSH_RC=0 run_remote_crew_state "$d" rsm); rc=$?
-  expect_code 0 "$rc" "remote alive exits 0"
-  assert_contains "$out" "state: working" "alive remote mate with a working log reads working"
-  assert_contains "$out" "source: status-log" "alive remote mate reads current activity from the routed log"
-  assert_contains "$out" "remote endpoint alive on remote-mac" "the remote liveness read should be visible"
-  assert_not_contains "$out" "worktree gone" "a healthy remote mate must never read as torn down"
-  pass "fm-crew-state remote: alive endpoint falls through to the routed status log"
-}
 
-test_remote_alive_idle_is_healthy_not_gone() {
-  reset_fakes
-  local d out rc
-  d=$(setup_remote_case remote-alive-idle)
-  make_fakebin "$d" >/dev/null
-  out=$(FM_FAKE_REMOTE_STATE_OUT=alive FM_FAKE_SSH_RC=0 run_remote_crew_state "$d" rsm); rc=$?
-  expect_code 0 "$rc" "remote alive-idle exits 0"
-  assert_contains "$out" "source: remote-endpoint" "the remote endpoint is the reported source"
-  assert_contains "$out" "alive on remote-mac" "an idle remote mate reads alive"
-  assert_not_contains "$out" "worktree gone" "a healthy remote mate must never read as torn down"
-  assert_not_contains "$out" "backend target gone" "a healthy remote mate must never read as a dead target"
-  pass "fm-crew-state remote: an idle alive endpoint reads alive, never gone or dead"
-}
 
-test_remote_unreachable_is_unknown_remote_not_dead() {
-  reset_fakes
-  local d out rc
-  d=$(setup_remote_case remote-unreachable)
-  make_fakebin "$d" >/dev/null
-  printf 'working: refactoring the quota adapter\n' > "$d/state/rsm.status"
-  out=$(FM_FAKE_SSH_RC=255 run_remote_crew_state "$d" rsm); rc=$?
-  expect_code 0 "$rc" "unreachable remote exits 0"
-  assert_contains "$out" "unknown-remote" "an unreachable remote must be labeled unknown-remote"
-  assert_contains "$out" "not proof of death" "an unreachable remote must not read as dead"
-  assert_not_contains "$out" "worktree gone" "an unreachable remote must never read as torn down"
-  assert_not_contains "$out" "backend target gone" "an unreachable remote must never read as a dead target"
-  pass "fm-crew-state remote: an unreachable host reads unknown-remote, never gone or dead"
-}
 
-test_remote_dead_reports_remote_verdict() {
-  reset_fakes
-  local d out rc
-  d=$(setup_remote_case remote-dead)
-  make_fakebin "$d" >/dev/null
-  out=$(FM_FAKE_REMOTE_STATE_OUT=dead FM_FAKE_SSH_RC=0 run_remote_crew_state "$d" rsm); rc=$?
-  expect_code 0 "$rc" "remote dead exits 0"
-  assert_contains "$out" "remote endpoint dead on remote-mac" \
-    "a genuinely dead remote endpoint reports the remote host's own verdict"
-  pass "fm-crew-state remote: the remote host's own dead verdict is reported truthfully"
-}
 
 test_missing_meta() {
   reset_fakes
@@ -1435,9 +1271,6 @@ test_other_branch_run_ignored
 test_no_run_busy_pane
 test_no_run_footer_text_alone_is_not_working
 test_no_run_grok_uses_isolated_fallback
-test_no_run_herdr_unknown_uses_backend_capture
-test_no_run_herdr_idle_agent_status_outranked_by_record
-test_no_run_herdr_idle_agent_status_and_idle_record_stays_idle
 test_no_run_idle_pane_uses_log
 test_no_run_idle_pane_uses_keyed_log
 test_no_run_idle_pane_paused
@@ -1449,10 +1282,6 @@ test_dead_window_still_reports_active_run_step
 test_no_timeout_uses_perl_bound
 test_scout_skips_run_lookup
 test_torn_down_worktree
-test_remote_alive_with_log_uses_status_log
-test_remote_alive_idle_is_healthy_not_gone
-test_remote_unreachable_is_unknown_remote_not_dead
-test_remote_dead_reports_remote_verdict
 test_missing_meta
 test_provably_working_via_runs_list_fallback
 test_not_provably_working_when_stopped

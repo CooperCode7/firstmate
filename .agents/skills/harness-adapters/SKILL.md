@@ -2,7 +2,7 @@
 name: harness-adapters
 description: >-
   Agent-only reference for firstmate harness operations.
-  Use before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
+  Use before spawning or recovering a crewmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
   Contains verified facts for claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, and muse.
 user-invocable: false
 metadata:
@@ -19,15 +19,6 @@ When a matched rule or default is a profile array, load `quota-array-dispatch` f
 The captain may override that file at session start or later; a per-task instruction such as "run this one on codex" overrides it for that dispatch only.
 `default` means mirror firstmate's own harness.
 
-Secondmates have their own harness knob, so a secondmate can run on a different adapter than crewmates.
-`config/secondmate-harness` is the harness the primary uses to launch SECONDMATE agents, resolved through the fallback chain `config/secondmate-harness` -> `config/crew-harness` -> firstmate's own.
-An absent or `default` `config/secondmate-harness` therefore behaves exactly as the crew harness did before this knob existed (secondmates launched on the crew harness); setting it splits the two.
-The [`secondmate-provisioning` skill](../secondmate-provisioning/SKILL.md) owns the complete inherited-local-material allowlist and propagation contract.
-This skill owns only the harness-relevant consequence: a secondmate's own crewmates use the primary's inherited dispatch profiles and static harness value, while `config/secondmate-harness` is the primary's own setting and is never inherited - secondmates do not spawn secondmates.
-Inheritance copies the literal `config/crew-harness` file, so for a secondmate's own crewmates to run on the primary's crewmate harness the captain must set `config/crew-harness` to a concrete adapter name, such as `codex`.
-If `config/crew-harness` is unset or `default`, there is no concrete value to inherit, so the secondmate's own crewmates fall back to the secondmate's own/detected harness rather than the primary's effective crewmate harness.
-Inheritance also copies the literal `config/crew-dispatch.json` file, so secondmates apply the same best-fit profile rules for their own crewmates.
-
 Each adapter splits into mechanics and knowledge.
 The per-task mechanics, including launch command, autonomy flag, and any enabled crewmate turn-end hook, live in `bin/fm-spawn.sh`.
 Agent lifecycle mechanics - which key interrupts a turn, how many times it must be sent, whether the composer needs clearing afterwards, which command exits the agent, and which task kinds the adapter can run - are owned by the executable control plane in `bin/fm-control-lib.sh` and delivered by `bin/fm-control.sh <task-id> interrupt|exit|relaunch`.
@@ -38,18 +29,13 @@ The primary-session watcher wake protocols are rendered from `docs/supervision-p
 The supervision knowledge lives here: busy state, exit command, interrupt, dialogs, resume behavior, skill invocation, and quirks.
 Each adapter's `Busy state` row names only which semantic source that harness uses; `bin/fm-busy-lib.sh` owns the contract itself, including verdicts, source attribution, and the verification gates that keep an unverified harness at unknown.
 
-Never dispatch a crewmate or secondmate on an unverified adapter.
-If `config/crew-harness` or `config/secondmate-harness` names an unverified adapter, tell the captain under `AGENTS.md` section 9 that the requested worker runtime is not verified yet, use firstmate's own verified runtime for current work, and ask only whether to verify the requested runtime before future use.
 Do not pause current work for that future-verification choice, and never launch an unverified adapter.
-If the captain asks for a new harness, propose verifying it first: spawn a trivial supervised task using `fm-spawn`'s raw-launch-command escape hatch, confirm every fact empirically, then record the mechanics in `fm-spawn`, its semantic busy source and trust gate in `bin/fm-busy-lib.sh`, any new composer shape, prompt glyph, or idle placeholder in `bin/fm-composer-lib.sh`'s shared screen classifier (the ONE fleet-wide owner of every composer shape and the `empty`/`pending`/`pending-unproven`/`unknown` decision - teaching it there gives every backend the shape in the same commit, and no adapter may carry its own copy), the tmux agent-process liveness classification in `bin/backends/tmux.sh` when the harness can launch a secondmate, and the verified knowledge here.
 
 ## Detection
 
 `bin/fm-harness.sh` prints firstmate's own harness, using verified env markers first and then process ancestry.
 Within the Pi family, only the exact launch-boundary marker `FM_PI_HARNESS=pi-signed` alongside `PI_CODING_AGENT=true` selects the signed identity; unmarked shared launcher ancestry remains `pi`.
 `bin/fm-harness.sh crew` resolves the effective crewmate harness from `config/crew-harness` (absent or `default` -> own).
-`bin/fm-harness.sh secondmate` resolves the secondmate-launch harness through the chain `config/secondmate-harness` -> `config/crew-harness` -> own, so an unset `config/secondmate-harness` matches the crew harness.
-`bin/fm-spawn.sh` uses `crew` mode for a crewmate/scout launch and `secondmate` mode for a `--secondmate` launch, re-resolving on every spawn so the split is durable across respawns; an explicit per-spawn harness arg overrides either.
 On `unknown`, ask the captain instead of guessing.
 A captain override always beats detection.
 When verifying a new adapter, record its env marker and command name in `bin/fm-harness.sh`.
@@ -65,7 +51,6 @@ The primary integrations for `claude`, `codex`, `opencode`, `pi`, `pi-signed`, `
 Grok selects native blocking or its pre-native bounded resume fallback from the exact running Stop payload; [`docs/turnend-guard.md`](../../../docs/turnend-guard.md) owns that contract.
 Kimi is outside the primary turn-end guard scope, while `docs/turnend-guard.md` owns its separate guarded global hook for crew wake signals.
 muse is CREWMATE/SCOUT ONLY and has no primary integration at all: its plugin engine (its only hook surface) is disabled in the default build, and its Claude-compatible hook dialect names `asyncRewake` and model reawakening as explicitly unsupported, which is exactly what a firstmate primary's turn-end supervision needs.
-`bin/fm-spawn.sh` refuses a `--secondmate` launch on muse for that reason.
 cursor HAS a full hooks system: 20 lifecycle events configurable at project scope in `.cursor/hooks.json`, plus a Claude-Code compatibility name map that also loads `<project>/.claude/settings.json`.
 Its `stop` step cannot block - exit 2 there is a silent no-op - so `bin/fm-turnend-guard-cursor.sh` parks the turn boundary on the watcher and returns one bounded `followup_message` instead.
 Because Cursor loads the tracked Claude settings too, every Claude-shaped entrypoint whose event Cursor covers stands down on a Cursor-delivered payload.
@@ -109,11 +94,11 @@ Pi and pi-signed use the tracked `.pi/extensions/fm-primary-turnend-guard.ts` pl
 When changing any primary watcher adapter, update `docs/supervision-protocols/`, `docs/turnend-guard.md` if a shared idle or turn-end hook changed, and the relevant concise fact below.
 
 ## Launch profile axes
+If the captain asks for a new harness, propose verifying it first: spawn a trivial supervised task using `fm-spawn`'s raw-launch-command escape hatch, confirm every fact empirically, then record the mechanics in `fm-spawn`, its semantic busy source and trust gate in `bin/fm-busy-lib.sh`, any new composer shape, prompt glyph, or idle placeholder in `bin/fm-composer-lib.sh`'s shared screen classifier (the ONE fleet-wide owner of every composer shape and the `empty`/`pending`/`pending-unproven`/`unknown` decision), the tmux agent-process liveness classification in `bin/backends/tmux.sh`, and the verified knowledge here.
 
 `bin/fm-spawn.sh` accepts concrete `--harness`, `--model`, and `--effort` values chosen by firstmate at intake.
 Do not make the shell scripts parse or match natural-language dispatch rules.
 
-Effort precedence is an explicit per-task captain instruction first, then any applicable standing dispatch profile or secondmate pin, then the generic fallback below.
 Never replace an effort value supplied by either higher-precedence source.
 Use the fallback only when neither the captain nor applicable standing configuration specifies effort.
 Use `low` for well-understood work with an explicit bounded path and `xhigh` for ambiguous investigation or design.
@@ -170,7 +155,7 @@ Natural language is acceptable if uncertain.
 - codex: `$<skill>`, for example `$no-mistakes`; `/<skill>` is claude-only and codex rejects it as "Unrecognized command".
 - opencode: no separate verified skill invocation beyond normal slash-command behavior; use natural language if the exact skill command is uncertain.
 - pi and pi-signed: no separate verified skill invocation beyond normal command behavior; use natural language if the exact skill command is uncertain.
-- grok: `/<skill>`, for example `/no-mistakes` (same form as claude). Verified end to end: grok discovers the user-level `no-mistakes` skill, `/no-mistakes` invokes it, and grok drives a real `no-mistakes axi run`. Like codex's `$`/`/` popups, typing `/<skill>` opens grok's slash-autocomplete, so a too-fast Enter selects the popup entry instead of sending, and for an argument-taking command (like `/no-mistakes`'s optional task-first argument) that first Enter only expands the popup selection into an argument-hint placeholder rather than submitting - a genuine second Enter is required (see the grok section below for the 2026-07-03 incident and fix). `fm_tmux_submit_core`'s retried Enter (used by `fm-send` on the tmux backend) handles this through the shared structural composer classifier; the herdr backend needed a dedicated fix (`fm_backend_herdr_composer_state`, docs/herdr-backend.md) because its prior delta-based verification false-positived on that same popup-close content change.
+- grok: `/<skill>`, for example `/no-mistakes` (same form as claude). Verified end to end: grok discovers the user-level `no-mistakes` skill, `/no-mistakes` invokes it, and grok drives a real `no-mistakes axi run`. Like codex's `$`/`/` popups, typing `/<skill>` opens grok's slash-autocomplete, so a too-fast Enter selects the popup entry instead of sending, and for an argument-taking command that first Enter only expands the popup selection into an argument-hint placeholder rather than submitting - a genuine second Enter is required. `fm_tmux_submit_core`'s retried Enter handles this through the shared structural composer classifier.
 - kimi: `/<skill>`, for example `/no-mistakes`.
 - cursor: `/<skill>`, for example `/no-mistakes`. Cursor discovers firstmate's user-level skills. Its slash popup swallows the first Enter, so a genuine second Enter submits; the shared submit retry handles it.
 
@@ -195,10 +180,7 @@ If such a dialog is showing, accept it from an active firstmate session using `F
 
 Claude renders a predicted-next-prompt suggestion as dim/faint text inside an otherwise-empty composer after a turn completes.
 A plain `tmux capture-pane` cannot tell that ghost text apart from typed text.
-Firstmate launches every claude crewmate and secondmate with `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false`, scoped to firstmate-launched agents through `bin/fm-spawn.sh`, so it never touches the captain's global config.
 The CLI's `--prompt-suggestions` flag is print/SDK-mode only and does not suppress the interactive composer ghost text, verified empirically on v2.1.186.
-As defense in depth for any pane that flag cannot reach, including the captain's own firstmate composer that away-mode reads, the shared `fm_composer_strip_ghost` extractor in `bin/fm-composer-lib.sh` removes dim/faint SGR 2 ghost runs before pending-input classification on every styled reader (tmux, herdr, and Zellij).
-Its broader dark-TRUECOLOR placeholder handling and dark-theme tradeoff are documented in `docs/herdr-backend.md` "Composer and injection safety", with active captures in `docs/verification/runtime-backends.md`.
 That styled capture is internal to the boolean detector only.
 `fm-peek` and every other human or LLM-facing capture path stays plain `tmux capture-pane` with no escape codes.
 
@@ -209,6 +191,12 @@ Claude Code's stdin payload to a Stop hook carries a `stop_hook_active` boolean 
 A project-level `.claude/settings.json` only takes effect when Claude Code's project root is that exact directory - it does not walk up from a subdirectory looking for one, so firstmate launches the primary from the repo root.
 After those settings are loaded, hook command resolution is still cwd-sensitive because Claude Code runs commands through `/bin/sh` against the session's current cwd; keep the tracked commands anchored through `"$CLAUDE_PROJECT_DIR"/bin/...` and see `docs/turnend-guard.md` for the verified Stop-hook details.
 Claude Code's primary watcher protocol is Stop-owned: the auto-arm hook fires on every Stop and foregrounds `bin/fm-watch-arm.sh` when the home is eligible and still needs supervision, and its exit-2 `asyncRewake` rewake is the wake; the model drains and handles wakes but never runs a routine re-arm command.
+
+Claude renders a predicted-next-prompt suggestion as dim/faint text inside an otherwise-empty composer after a turn completes.
+A plain `tmux capture-pane` cannot tell that ghost text apart from typed text.
+Firstmate launches every claude crewmate with `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false`, scoped to firstmate-launched agents through `bin/fm-spawn.sh`, so it never touches the captain's global config.
+The CLI's `--prompt-suggestions` flag is print/SDK-mode only and does not suppress the interactive composer ghost text, verified empirically on v2.1.186.
+As defense in depth for any pane that flag cannot reach, including the captain's own firstmate composer that away-mode reads, the shared `fm_composer_strip_ghost` extractor in `bin/fm-composer-lib.sh` removes dim/faint SGR 2 ghost runs before pending-input classification.
 
 ## codex (VERIFIED 2026-06-11, codex-cli 0.139.0)
 
@@ -259,8 +247,6 @@ While opencode is mid-turn, the composer accepts Enter as a "send when the turn
 ends" keystroke but does not clear the typed text from the composer until the
 turn actually finishes.
 Without a conversion, every typed-plane `fm-send` to a busy opencode pane exits non-zero on a false "Enter swallowed", and every daemon escalation that lands while the primary is mid-turn is treated as wedged.
-Both tmux and herdr delegate this exception to the one policy in `fm_composer_queued_enter_verdict` (`bin/fm-composer-lib.sh`), with backend-specific signals documented in `docs/tmux-backend.md` and `docs/herdr-backend.md`.
-Regression coverage is `tests/fm-tmux-submit-busy.test.sh`, `tests/fm-composer-lib.test.sh`, and `tests/fm-backend-herdr.test.sh`; the live Herdr Claude guard is `FM_HERDR_SUBMIT_CONFIRM_LIVE=1 tests/fm-herdr-submit-confirm-live-e2e.test.sh`.
 
 **Primary-session guard fact (verified 2026-07-08, OpenCode 1.17.6).**
 The firstmate PRIMARY's own `.opencode/plugins/fm-primary-turnend-guard.js` listens for `session.idle`.
@@ -301,7 +287,6 @@ Without `deliverAs: "followUp"`, Pi rejects the send while the agent is still pr
 Pi's primary watcher protocol also requires the tracked `.pi/extensions/fm-primary-pi-watch.ts` extension, same trust-once discovery as the turn-end guard.
 The model arms through `fm_watch_arm_pi`, never a foreground bash arm; the watcher tool result and clean-exit fallback are owned by `docs/supervision-protocols/pi.md`.
 `bin/fm-session-start.sh` reports when the live Pi-family session has not loaded both the turn-end guard and watcher extensions, and points at the selected executable after project trust as the fix, with `-e` as a trust-free fallback.
-When a secondmate is launched on Pi or pi-signed, `fm-spawn.sh --secondmate` launches the selected executable with both `-e .pi/extensions/fm-primary-turnend-guard.ts` and `-e .pi/extensions/fm-primary-pi-watch.ts`, both already present in the secondmate home's git worktree.
 
 ## grok (VERIFIED 2026-06-29, grok 0.2.73; slash-submit re-verified 2026-07-03 on 0.2.82; reasoning-effort ceiling re-verified 2026-07-13 on 0.2.99; exit paths re-verified 2026-07-19 on grok 0.2.103)
 
@@ -314,26 +299,17 @@ For Grok's supported reasoning-effort values and omission behavior, see the [lau
 | Busy state | The one remaining rendered-tail fallback, isolated to Grok until its structured lifecycle is live-verified: `Ctrl+c:cancel`, the mid-turn cancel hint shown in grok's keybind bar iff a turn is running. The idle bar shows only `Shift+Tab:mode │ Ctrl+.:shortcuts`. ASCII is matched rather than the braille spinner to avoid locale fragility. |
 | Exit command | `/exit` typed into the composer exits the TUI cleanly and prints `Resume this session with: grok --resume <session-id>`; `Ctrl+Q` double-press within 1000ms remains a fallback; `Ctrl+D` is the quit key in VS Code family terminals; `Ctrl+C` is the interrupt, not the exit. |
 | Interrupt | single `Ctrl+C` (cancels the current turn; the footer shows `Ctrl+c:cancel` mid-turn). `Esc` only moves focus to the scrollback, it does NOT interrupt. |
-| Skill invocation | `/<skill>` (e.g. `/no-mistakes`), same as claude. Opens a slash-autocomplete popup, so a too-fast Enter selects the popup entry instead of sending. For an argument-taking command that first Enter does not submit at all - it expands the selection into an argument-hint placeholder in the composer (e.g. `/compact` -> `/compact compaction instructions`, live-verified), leaving real text still sitting there unsubmitted; a genuine second Enter is required. `fm-send`'s retried Enter lands it on BOTH backends because the shared composer classifier recognizes that placeholder-filled text as still pending; Herdr may also confirm a real turn start through native agent state - see the incident below. |
 | Autonomy | `--always-approve` (footer shows `· always-approve`); auto-approves every tool execution, verified to run fully unattended. `--permission-mode bypassPermissions` is the stronger equivalent. |
 | Env marker | `GROK_AGENT=1`, set for child/tool processes on grok 0.2.73. grok does NOT set `CLAUDECODE` despite Claude compatibility, so the marker is unambiguous WHEN PRESENT, but it is not guaranteed present: a grok 1.0.0 hook process carries `GROK_HOOK_EVENT`, `GROK_HOOK_NAME`, `GROK_SESSION_ID`, and `GROK_WORKSPACE_ROOT` with no `GROK_AGENT`. Treat it as a fast path only; `bin/fm-harness.sh`'s ancestry walk is what guarantees grok identification, and any rule that must be reliable under grok has to test the hook markers too (owner: `docs/turnend-guard.md` "Harness integrations"). |
 | Resume | `grok --resume <session-id>` (id printed on exit) or `grok -c` / `--continue` (most recent for the cwd); `--fork-session` branches a new session id. |
-
-**Incident (2026-07-03, herdr backend only, grok 0.2.82):** two grok/herdr crewmates were sent `/no-mistakes` via `fm-send`; both left it fully typed but unsubmitted in the composer for minutes (footer still `Enter:send`), and `fm-send` exited 0 with no error.
-Reproduced live: the herdr adapter's submit-verification at the time treated ANY pane-content change after Enter as "submitted", and the popup-close-with-placeholder-fill described above IS a visible content change even though nothing was actually sent.
-The current tmux and Herdr adapters pass their captures and capability descriptors to `bin/fm-composer-lib.sh`, whose shared structural classifier sees placeholder-filled text on any proven content row as still pending, so the retry loop sends the needed second Enter.
-See `docs/herdr-backend.md` "Composer and injection safety" for Herdr's current boundary and `tests/fm-backend-herdr.test.sh` for regression coverage.
 
 Startup dialog: the "Run Grok Build in a project directory?" project picker appears ONLY when grok is launched from a non-project directory (home, Desktop, Downloads, `/tmp`).
 `fm-spawn` launches inside the treehouse worktree (a git repo root), so the picker never appears and grok treats the worktree as a trusted project automatically - no post-launch keystroke is needed.
 Pin `[hints] project_picker_disabled = true` in `~/.grok/config.toml` if a non-project launch ever needs to skip it.
 
-**TRUECOLOR placeholder styling: covered (task afk-herdr-false-pending, 2026-07-10).**
 A freshly-dismissed, never-typed-into grok composer shows a placeholder ("Type a message...") styled with a dark 24-bit TRUECOLOR foreground, not the SGR-2 dim/faint attribute the ghost stripper originally detected.
-The shared ANSI-aware owner `fm_composer_strip_ghost` (`bin/fm-composer-lib.sh`) now drops a dark/muted truecolor foreground (perceived luminance below `FM_COMPOSER_GHOST_LUMA_MAX`, default 128) as well as dim/faint, so the placeholder is stripped and the row reads empty on every styled backend (tmux, herdr, and Zellij route through the same owner).
 Verified live against grok 0.2.93: real input is the bright `38;2;224;222;244` (luminance ~225, kept), while grok's borders and placeholder/hint text are dark truecolor (`38;2;50;47;70` .. `38;2;110;106;134`, luminance ~51..110, dropped).
 This assumes a dark terminal theme, the fleet reality; the SGR-2 signal stays theme-independent.
-Regression coverage: `tests/fm-composer-ghost.test.sh` (`test_strip_ghost_drops_dark_truecolor_ghost`, `test_dark_truecolor_ghost_only_composer_is_not_pending`) and `tests/fm-backend-herdr.test.sh` (`test_composer_state_grok_dark_truecolor_placeholder_is_empty`, `test_composer_state_grok_bright_truecolor_real_text_is_pending`).
 
 **Tmux bottom-border cursor quirk (fixed):**
 In a pristine placeholder-only composer, tmux's `#{cursor_y}` can point at the box's bottom border instead of its text row.
@@ -349,7 +325,6 @@ Its `Stop` command fires only when the current workspace holds a `.fm-grok-turne
 The hook reads `$GROK_WORKSPACE_ROOT`, which is always set for hooks and equals the worktree.
 This keeps the hook outside the worktree, needs no trust grant, and writes only firstmate-owned files.
 `fm-teardown` removes the worktree pointer before returning a pooled worktree.
-Secondmate spawns skip the pointer (idle panes are healthy, no stale-pane detection for them).
 
 **Primary-session guard fact (verified 2026-07-28, Grok 0.2.112 and 0.2.73).**
 The firstmate PRIMARY's own `.grok/hooks/fm-primary-turnend-guard.json` invokes `bin/fm-turnend-guard-grok.sh`.
@@ -359,10 +334,10 @@ The tracked Claude hook entries whose event Grok already covers through its own 
 Project-local Grok hooks require folder trust, verified with launch-time `--trust`; if the primary firstmate checkout is not trusted for Grok hooks, this primary guard fails open and `fm-guard.sh` remains the next-command alarm.
 Grok's primary watcher protocol remains background-notify around `bin/fm-watch-arm.sh`; native Stop continuation does not provide Pi-like extension ownership.
 
-## cursor (VERIFIED CREWMATE/SCOUT 2026-08-11 on tmux and 2026-08-12 on Herdr, and SECONDMATE/PRIMARY 2026-08-13, Cursor Agent CLI 2026.08.11-e8db854)
+## cursor (VERIFIED CREWMATE/SCOUT 2026-08-11 on tmux, and PRIMARY 2026-08-13, Cursor Agent CLI 2026.08.11-e8db854)
 
-Cursor Agent CLI runs crewmate, scout, secondmate, and primary work.
-Its primary supervision is the stop-hook park in [`docs/supervision-protocols/cursor.md`](../../../docs/supervision-protocols/cursor.md), registered in tracked `.cursor/hooks.json`; a Cursor primary or secondmate must be launched with `--trust` or no project hook loads at all.
+Cursor Agent CLI runs crewmate, scout, and primary work.
+Its primary supervision is the stop-hook park in [`docs/supervision-protocols/cursor.md`](../../../docs/supervision-protocols/cursor.md), registered in tracked `.cursor/hooks.json`; a Cursor primary must be launched with `--trust` or no project hook loads at all.
 Do not confuse `harness=cursor` using a `cursor-grok-4.5-*` model with `harness=grok`, which is the separate xAI Grok Build CLI and credential surface.
 
 | Fact | Value |
@@ -370,7 +345,7 @@ Do not confuse `harness=cursor` using a `cursor-grok-4.5-*` model with `harness=
 | Binary | Resolved through `fm_cursor_resolve_binary` (bin/fm-cursor-lib.sh). `cursor` is NOT the CLI: the installed names are `cursor-agent` and the legacy alias `agent`, both symlinked into `~/.local/share/cursor-agent/versions/<version>/cursor-agent`. The STABLE launcher is used, never the versioned target, which the CLI replaces on its own auto-update. |
 | Launch | A positional prompt with `--trust`, `--yolo`, `--model <model>` when selected, and `--workspace <absolute-task-worktree>`, behind `env -u` of the foreign primary markers. |
 | Models | Validate against `cursor-agent --list-models` for the current account rather than a fixed list; that list has already drifted once. The live catalog contains only `-high` Grok ids (`cursor-grok-4.5-high`, `cursor-grok-4.5-high-fast`) and several `xhigh` ids, so an assumed low/medium Grok id is invalid. |
-| Busy state | Its own per-conversation transcript, folded on demand by `bin/fm-busy-lib.sh` (source `cursor-transcript`). Each turn is bracketed by a `role:user` open and a typed `turn_ended` close covering `success` and `aborted`, so unlike Claude's `Stop` hook this source covers manual interruption. Nothing is armed and no record is ever seeded. Backend-agnostic, and confirmed identical on tmux and Herdr. |
+| Busy state | Its own per-conversation transcript, folded on demand by `bin/fm-busy-lib.sh` (source `cursor-transcript`). Each turn is bracketed by a `role:user` open and a typed `turn_ended` close covering `success` and `aborted`, so unlike Claude's `Stop` hook this source covers manual interruption. Nothing is armed and no record is ever seeded. |
 | Exit command | `/exit` |
 | Interrupt | Single Escape. The composer returns to its placeholder rather than the cancelled prompt, so NO clear key is needed (unlike muse). `bin/fm-control-lib.sh` claims no cancellation acknowledgement: the aborted transcript close appeared within seconds in some runs and not within twenty in others. |
 | Skill invocation | `/<skill>`, for example `/no-mistakes`. Cursor discovers firstmate's user-level skills; `/no-mistakes` autocompleted with firstmate's own description and invoked the skill. |
@@ -402,15 +377,13 @@ This is what makes away-mode escalation delivery work against a Cursor primary: 
 Submission is additionally acknowledged from the idle-to-busy transition, which is why cursor's `ctrl+c to stop` token is part of the delivery busy union in `bin/fm-composer-lib.sh`.
 Match that TOKEN and never the spinner verb: the same version rendered `Working` in one turn and `Running` in the next.
 
-**Delivery confirmation is verified on tmux and Herdr only.**
-Herdr reports a Cursor pane `blocked` in EVERY state - idle, mid-turn, and after - so its native idle-baseline submit path is unreachable for Cursor and the composer branch runs instead; that branch reads a mid-turn row carrying the placeholder beside `ctrl+c to stop`, which is `pending`.
-`bin/backends/herdr.sh` therefore confirms a Cursor submit from a rendered-footer idle-to-busy transition, taking the baseline before the first Enter so an already-busy pane never confirms.
-Zellij, cmux, and Orca share a submit core that never consults that footer, so a typed-plane Cursor send there (a harness-native invocation or an explicit backend target; ordinary text steers ride the durable inbox and exit 0 at enqueue) LANDS but `bin/fm-send.sh` reports delivery unconfirmed and exits non-zero.
+**Delivery confirmation is verified on tmux only.**
+tmux reports a Cursor pane `blocked` in EVERY state - idle, mid-turn, and after - so its native idle-baseline submit path is unreachable for Cursor and the composer branch runs instead; that branch reads a mid-turn row carrying the placeholder beside `ctrl+c to stop`, which is `pending`.
 Treat that as a known limitation of those three backends rather than a lost message: the text is in the pane and the worker's own recorded state still comes from its transcript fold.
 Teaching the shared core the same transition is deliberately separate work, because it changes the submit path for every harness on those three backends and needs its own live validation on each.
 
 The composer's reverse-video placeholder remnant is taught to the ONE fleet-wide screen classifier in `bin/fm-composer-lib.sh`, not to any adapter.
-Herdr additionally draws the composer's rules with half-block glyphs, which the same shared classifier owns as structural edges; without them a bare composer's wrap region swallows the footer below it and an idle pane reads `pending`.
+tmux additionally draws the composer's rules with half-block glyphs, which the same shared classifier owns as structural edges; without them a bare composer's wrap region swallows the footer below it and an idle pane reads `pending`.
 `docs/verification/runtime-backends.md` "Cursor Agent CLI" owns the dated captures, and the drift guard that refreshes them is:
 
 ```bash
@@ -471,7 +444,6 @@ The guarded turn-end signal remains a wake notification; standalone Kimi has no 
 ## muse (VERIFIED 2026-08-05, Muse Code 0.1.0-R708.1, build sha 427a430436)
 
 Muse Code is a CREWMATE and SCOUT adapter only.
-`bin/fm-spawn.sh` refuses `--secondmate` on muse, and muse has no supervision protocol under `docs/supervision-protocols/`, so a firstmate primary detected as muse falls back to the `unknown` protocol.
 
 | Fact | Value |
 |---|---|

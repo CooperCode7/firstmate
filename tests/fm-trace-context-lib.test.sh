@@ -243,7 +243,6 @@ pass "the lib code never reads a brief, prompt, report, or status - it cannot le
 # --- secondmate inheritance wires the nested chain ---------------------------
 
 # shellcheck source=/dev/null
-. "$ROOT/bin/fm-config-inherit-lib.sh"
 case " $FM_INHERITABLE_CONFIG " in
   *" trace-context "*) : ;;
   *) fail "config/trace-context must be in FM_INHERITABLE_CONFIG so secondmate homes stay traced" ;;

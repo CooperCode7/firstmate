@@ -25,8 +25,6 @@
 # shared default branch or any other worktree's checkout.
 
 SUB_HOME_MARKER="${SUB_HOME_MARKER:-.fm-secondmate-home}"
-# shellcheck source=bin/fm-secondmate-registry-lib.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-secondmate-registry-lib.sh"
 
 # --- helpers ---------------------------------------------------------------
 
@@ -50,22 +48,7 @@ default_branch() {
   return 1
 }
 
-# Resolve the PRIMARY checkout's current default-branch commit - the local-HEAD
-# sync target every secondmate follows. Reads the default branch *ref* rather than
-# HEAD, so even a primary stranded on a feature branch (the worktree tangle of
-# section 8) still yields the true default-branch tip instead of propagating a
-# stray feature branch to the fleet. Echoes the commit SHA, or returns 1.
-primary_head_commit() {
-  local root=$1 default
-  default=$(default_branch "$root") || return 1
-  git -C "$root" rev-parse --verify --quiet "refs/heads/$default^{commit}" 2>/dev/null || return 1
-}
 
-resolve_path() {
-  # Resolve to a canonical absolute path, falling back to the literal input
-  # when the directory does not exist (so callers can still dedup/skip on it).
-  ( cd "$1" 2>/dev/null && pwd -P ) || printf '%s\n' "$1"
-}
 
 resolved_existing_dir() {
   local path=$1
@@ -233,25 +216,6 @@ dirty_status() {
   fi
 }
 
-# List this home's LIVE secondmate direct reports from state/<id>.meta records.
-# The meta file is the liveness signal; data/secondmates.md is only the fallback
-# for durable fields such as home= when an older/incomplete meta lacks them.
-# Output is pipe-delimited: id|home|window|meta-file.
-live_secondmate_meta_records() {
-  local state=$1 registry=${2:-} meta id home window
-  [ -d "$state" ] || return 0
-  for meta in "$state"/*.meta; do
-    [ -f "$meta" ] || continue
-    grep -q '^kind=secondmate$' "$meta" 2>/dev/null || continue
-    id=$(basename "$meta" .meta)
-    home=$(grep '^home=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-    if [ -z "$home" ] && [ -n "$registry" ]; then
-      home=$(secondmate_registry_field "$registry" "$id" home || true)
-    fi
-    window=$(grep '^window=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-    printf '%s|%s|%s|%s\n' "$id" "$home" "$window" "$meta"
-  done
-}
 
 # Fast-forward one target to a base. Prints its status line. Sets globals for the
 # caller:
@@ -365,56 +329,4 @@ ff_target() {
 FF_NUDGE_WINDOWS=""
 FF_SEEN_HOMES=""
 
-# Validate and fast-forward one secondmate home, accumulating its stable
-# fm-<id> task selector into FF_NUDGE_WINDOWS when it should be live-converged.
-# Args:
-#   id home window base_mode nudge_requires_instr
-# A home is nudged only when it ACTUALLY advanced (FF_STATUS=updated) and has a
-# live window. With nudge_requires_instr=yes the advance must also have changed
-# the instruction surface (FF_INSTR non-empty): an already-current home, or one
-# whose only change was non-instruction tracked files, is left undisturbed. The
-# firstmate repo itself (FM_ROOT) is never processed as its own secondmate, and
-# each resolved home is processed at most once.
-process_secondmate() {
-  local id=$1 home=$2 window=${3:-} base_mode=$4 nudge_requires_instr=${5:-no} home_real fm_root_real
-  [ -n "$id" ] || return 0
-  [ -n "$home" ] || return 0
-  fm_root_real=$(resolve_path "$FM_ROOT")
-  home_real=$(resolve_path "$home")
-  [ "$home_real" != "$fm_root_real" ] || return 0
-  if ! validate_secondmate_home "$id" "$home"; then
-    echo "secondmate $id: skipped: unsafe home: $VALIDATION_ERROR"
-    return 0
-  fi
-  home_real="$VALIDATED_HOME"
-  case " $FF_SEEN_HOMES " in
-    *" $home_real "*) return 0 ;;
-  esac
-  FF_SEEN_HOMES="$FF_SEEN_HOMES $home_real"
 
-  ff_target "$home_real" "secondmate $id" "$base_mode" yes yes
-  if [ "$FF_STATUS" = "updated" ] && [ -n "$window" ]; then
-    if [ "$nudge_requires_instr" = yes ] && [ -z "$FF_INSTR" ]; then
-      return 0
-    fi
-    FF_NUDGE_WINDOWS="$FF_NUDGE_WINDOWS fm-$id"
-    if [ "$nudge_requires_instr" = yes ] && [ -n "$FF_INSTR" ] \
-      && type fm_ff_after_instruction_update >/dev/null 2>&1; then
-      fm_ff_after_instruction_update "$id" "$home_real" "$window" "$FF_INSTR"
-    fi
-  fi
-}
-
-# Sweep this home's LIVE secondmate direct reports - state/<id>.meta files with
-# kind=secondmate - fast-forwarding each to base_mode. Passes base_mode and
-# nudge_requires_instr through to process_secondmate. Accumulates into
-# FF_NUDGE_WINDOWS / FF_SEEN_HOMES, which the caller resets before and reads after.
-# The registry argument is only for home= fallback on older or incomplete meta records.
-sweep_live_secondmate_metas() {
-  local state=$1 base_mode=$2 nudge_requires_instr=${3:-no} registry=${4:-$FM_HOME/data/secondmates.md} id home window meta
-  [ -d "$state" ] || return 0
-  while IFS='|' read -r id home window meta; do
-    if grep -q '^remote_host=.' "$meta" 2>/dev/null; then continue; fi
-    process_secondmate "$id" "$home" "$window" "$base_mode" "$nudge_requires_instr"
-  done < <(live_secondmate_meta_records "$state" "$registry")
-}

@@ -39,13 +39,6 @@ run_procevent() {  # <home> <command args...>
     "$ROOT/bin/fm-procevent.sh" "$@"
 }
 
-run_decisions() {  # <home> <command args...>
-  local home=$1
-  shift
-  PATH="$home/fakebin:$PATH" FM_HOME="$home" \
-    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    "$ROOT/bin/fm-decision-hold.sh" "$@"
-}
 
 # A realistic payload: a cross-origin full-identity decision key past the old
 # 64-char cap, a merge card, a dispatchable charted row, and a string that

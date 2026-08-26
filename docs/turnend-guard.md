@@ -20,7 +20,6 @@ The guard remains a backstop; [`watcher-continuity.md`](watcher-continuity.md) o
 ## Guard predicates
 
 The guard first calls the shared primary scope.
-A secondmate home runs its own primary Firstmate session, so a genuine `.fm-secondmate-home` marker includes it whether the home is a linked worktree or plain clone.
 The marker must be a regular non-symlink file whose whitespace-stripped first line is a non-empty identifier containing only letters, digits, dots, underscores, and dashes.
 An unmarked checkout or invalid marker falls through to the git-dir check.
 That check keeps crewmate and scout linked worktrees inert because their git dir differs from their git common dir.
@@ -135,7 +134,6 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 ## Compatibility limits
 
 - Child crewmate and scout worktrees are outside scope.
-- A valid secondmate home is in scope; an idle secondmate endpoint remains healthy because it has no supervision need.
 - The blocking and bounded-follow-up mechanisms are limited to the primary integrations listed above.
 - OpenCode headless mode and untrusted Grok project hooks remain fail-open at the host boundary.
 - Cursor's `stop` step does not fire in headless `cursor-agent -p`, the same class of limit as OpenCode headless; firstmate primaries run interactive.
@@ -152,7 +150,6 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 
 ## Regression coverage
 
-`tests/fm-turnend-guard.test.sh` covers the predicate, main and secondmate primary scope, child-worktree exclusion, `FM_HOME` and `FM_STATE_OVERRIDE` precedence, the live-lock and fresh-beacon guard predicate, the cooperative `--claude` claim wait, monotonic failed-epoch progression, bounded attended fail-open, post-alarm continuation suppression, positive recovery reset, the abandoned auto-arm claim cases that must block or clear instead of allowing a blind stop, Pi logical-run latching, missing-`jq` behavior, all five primary registrations, Grok native and legacy selection, typed field precedence, malformed input, and exactly-one-path safety.
 `tests/fm-guard-stale-banner.test.sh` covers the pull-guard predicate, including the persistent-model fresh-leftover-beacon negative control, the auto-arm model's healthy fresh-beacon-without-a-watcher case and stale-beacon alarm, and the extension model's live-watcher path, ownership-qualified fresh hand-off, held-lock failures, independently broken ownership signals, stale-beacon alarm, queued-wake warning, and Pi and pi-signed harness routing.
 It also covers true-reason banner wording and reason-keyed episode dedup surviving a beacon mtime change.
 `tests/fm-cursor-primary.test.sh` covers the Cursor park end to end over real processes with no harness installed: each tracked Claude-shaped entrypoint standing down on a Cursor payload, both follow-up sources, the bounded repair nag and its reset, the nested loop bounds, supersession, away-mode and lock-ownership inertness, child-worktree exclusion, and that the adapter never exits 2.
