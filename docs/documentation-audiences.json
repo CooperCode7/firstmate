@@ -273,14 +273,6 @@
       "audience": "operator-example"
     },
     {
-      "path": "docs/fm-test-isolation-proof.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "docs/fm-test-portable-shards.md",
-      "audience": "maintainer-verification"
-    },
-    {
       "path": "docs/gitlab-merge-watch.md",
       "audience": "maintainer-verification"
     },

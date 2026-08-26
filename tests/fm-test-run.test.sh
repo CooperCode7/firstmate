@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Contract tests for bin/fm-test-run.sh - the single owner of behavior suite
 # selection, portable lane composition, proven-isolated --jobs, timing markers,
-# JSON artifacts, coverage guard, and aggregate exit status.
+# JSON artifacts, lane partitioning, and aggregate exit status.
 #
 # These tests intentionally exercise the runner with fixtures, --list, and
 # focused scheduler checks, not the complete Firstmate suite.
@@ -350,8 +350,8 @@ test_exclude_family() {
   pass "exclude-family drops the named primary family after selection"
 }
 
-test_portable_shard_union_and_coverage_guard() {
-  local s1 s2 proven serial herdr all_count union_count overlap out first
+test_portable_shard_union() {
+  local s1 s2 proven serial herdr all_count union_count overlap
   s1=$("$RUNNER" --list --lane portable-parallel-1)
   s2=$("$RUNNER" --list --lane portable-parallel-2)
   proven=$("$RUNNER" --list --proven-isolated)
@@ -370,8 +370,6 @@ test_portable_shard_union_and_coverage_guard() {
     && fail "portable lanes must not include real-herdr-gated smoke"
   printf '%s\n' "$herdr" | grep -Fq 'tests/fm-backend-herdr-smoke.test.sh' \
     || fail "herdr family must include smoke"
-  out=$("$RUNNER" --check-coverage)
-  assert_contains "$out" "FM_TEST_COVERAGE ok" "coverage guard success marker"
   all_count=$("$RUNNER" --list --all | wc -l | tr -d ' ')
   union_count=$(printf '%s\n' "$s1" "$s2" "$serial" "$herdr" | LC_ALL=C sort -u | wc -l | tr -d ' ')
   [ "$union_count" = "$all_count" ] \
@@ -379,11 +377,7 @@ test_portable_shard_union_and_coverage_guard() {
   # No duplicates across the four partitions.
   [ "$(printf '%s\n' "$s1" "$s2" "$serial" "$herdr" | LC_ALL=C sort | uniq -d | wc -l | tr -d ' ')" = "0" ] \
     || fail "lanes must not duplicate scripts"
-  # LPT order: first script of shard 1 is the longest proven script.
-  first=$(printf '%s\n' "$s1" | head -n 1)
-  [ "$first" = "tests/fm-captain-hold-lifecycle.test.sh" ] \
-    || fail "shard 1 must start with the longest proven script, got $first"
-  pass "portable shard union, disjointness, and coverage guard hold"
+  pass "portable shard union and disjointness hold"
 }
 
 test_portable_serial_shards_partition_the_serial_lane() {
@@ -714,7 +708,7 @@ test_aggregate_exit_behavior
 test_gate_skip_accounting
 test_fail_on_gate_skip_token
 test_exclude_family
-test_portable_shard_union_and_coverage_guard
+test_portable_shard_union
 test_portable_serial_shards_partition_the_serial_lane
 test_portable_serial_shard_lane_refusals
 test_jobs_requires_proven_isolated

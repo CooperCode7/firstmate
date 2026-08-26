@@ -31,19 +31,8 @@ jobs:
       # fails locally before merge.
       - run: bin/fm-lint.sh
 
-  # Deterministic proof that portable parallel shards + portable serial + Herdr
-  # equal the complete tests/*.test.sh inventory with no missing or duplicates,
-  # and that the portable serial CI shards partition that serial lane exactly.
-  test-coverage:
-    name: Test coverage guard
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Prove complete regression partition
-        run: bin/fm-test-run.sh --check-coverage
-
-  # Two duration-balanced portable parallel shards of the Phase 2 proven-isolated
-  # set only. Composition owner: bin/fm-test-run.sh (docs/fm-test-portable-shards.md).
+  # Two portable parallel shards of the proven-isolated set only.
+  # Composition owner: bin/fm-test-run.sh.
   tests-portable-parallel-1:
     name: Behavior portable parallel 1
     runs-on: ubuntu-latest
@@ -125,7 +114,7 @@ jobs:
   # Split across separate runners so no two of these stateful scripts ever share
   # a machine: each shard is still strictly serial in itself. Shard membership
   # and the shard count both belong to bin/fm-test-run.sh, which refuses a lane
-  # whose "ofN" disagrees with it (docs/fm-test-portable-shards.md).
+  # whose "ofN" disagrees with it.
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     runs-on: ubuntu-latest
@@ -195,7 +184,7 @@ jobs:
     # Healthy runs finish around 7 minutes. This job cap is a last-resort hang
     # tripwire, not the expected end of the lane. The family-run step owns the
     # tighter bound so a wedged suite fails fast with always() cleanup and
-    # timing artifacts still uploaded (docs/fm-test-portable-shards.md).
+    # timing artifacts still uploaded.
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v6
