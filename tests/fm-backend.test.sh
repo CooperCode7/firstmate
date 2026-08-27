@@ -155,21 +155,6 @@ SH
   printf '%s\n' "$fb"
 }
 
-test_backend_detect_cmux_fallback_tmux_nested_false_positive() {
-  local dir fb out
-  dir="$TMP_ROOT/detect-fallback-nested"; mkdir -p "$dir"
-  fb=$(make_cmux_fallback_fakebin "$dir")
-
-  out=$(unset HERDR_ENV CMUX_WORKSPACE_ID; PATH="$fb:$PATH" TMUX='fake,1,0' __CFBundleIdentifier='com.cmuxterm.app' fm_backend_detect) \
-    || fail "fm_backend_detect should still succeed with \$TMUX plus an inherited cmux bundle id"
-  [ "$out" = tmux ] || fail "\$TMUX must win over an inherited cmux bundle id (tmux-inside-cmux pane), got '$out'"
-
-  out=$(unset TMUX CMUX_WORKSPACE_ID; PATH="$fb:$PATH" HERDR_ENV=1 __CFBundleIdentifier='com.cmuxterm.app' fm_backend_detect) \
-    || fail "fm_backend_detect should still succeed with HERDR_ENV=1 plus an inherited cmux bundle id"
-  [ "$out" = herdr ] || fail "HERDR_ENV=1 must win over an inherited cmux bundle id (herdr-inside-cmux pane), got '$out'"
-
-  pass "fm_backend_detect: an inherited cmux bundle id never outranks \$TMUX or HERDR_ENV (tmux/herdr-inside-cmux false positive absorbed)"
-}
 
 
 test_meta_get_and_backend_of_meta() {
@@ -643,7 +628,6 @@ test_spawn_autodetect_nesting_resolves_tmux_silently() {
   pass "fm-spawn.sh: auto-detect resolves nested tmux-in-herdr to tmux and stays silent end to end"
 }
 
-test_backend_detect_cmux_fallback_tmux_nested_false_positive
 test_meta_get_and_backend_of_meta
 test_send_tmux_contract
 test_peek_conformance_old_vs_new

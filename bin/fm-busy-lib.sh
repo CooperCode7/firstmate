@@ -1,3 +1,91 @@
+#!/usr/bin/env bash
+# fm-busy-lib.sh - the ONE owner of firstmate's semantic busy-state contract.
+#
+# Design source: the captain-approved semantic busy-state redesign
+# (2026-07-28): each harness adapter reports turn lifecycle through a
+# machine-readable semantic source it owns, classification always exposes
+# which source produced it, and missing, malformed, stale, unsupported, or
+# unverified semantic data is UNKNOWN - never idle. Endpoint death is the only
+# process-level override and yields dead, never busy. Child processes, CPU,
+# process sleep state, marker mtimes, and the old global UI-regex OR are not
+# state signals here; state/<id>.turn-ended files remain wake NOTIFICATIONS
+# owned by the watcher, not current-state truth.
+#
+# Record file: state/<id>.busy-state - exactly one line, atomically replaced
+# by bin/fm-busy-event.sh (the only writer):
+#
+#   v1 gen=<token> seq=<uint> state=<busy|idle|unknown> source=<token> event=<token> ts=<epoch>
+#
+# Gen sidecar: state/<id>.busy-gen - one token minted when the task's busy
+# wiring is armed (fm-spawn, or a documented recovery re-arm). Every event
+# must present the current gen; an event or record carrying any other gen is
+# a stale incarnation and is rejected (written events) or classified unknown
+# (read records). seq is a strictly increasing integer per gen, advanced
+# under the writer's lock, so an out-of-order apply can never regress a
+# newer record.
+#
+# Semantic sources written by adapters (fm_busy_sources_for_harness owns the
+# per-harness trust table; a record whose source is not trusted for the
+# task's recorded harness classifies unknown, so one adapter's writer can
+# never classify another adapter):
+#   pi-ext           Pi/pi-signed per-task extension (agent_start/agent_settled)
+#   opencode-plugin  OpenCode per-task plugin (session.status)
+#   claude-hook      Claude lifecycle hooks (UserPromptSubmit/Stop/StopFailure/SessionEnd)
+#   codex-hook, codex-appserver  reserved: Codex, gated by
+#                    fm_busy_codex_semantic_source
+#   kimi-wire, kimi-hook  reserved: standalone Kimi, gated by fm_busy_kimi_verified
+# Firstmate-owned sources accepted for every converted adapter:
+#   fm-spawn         the launch-brief turn seeded at spawn
+#   fm-interrupt     the legacy Claude fm-send --key Escape idle event
+#   fm-recovery      a documented recovery reset after relaunch
+# Classifier-only sources (never written into a record):
+#   endpoint-gone,
+#   cursor-transcript, missing, malformed, gen-mismatch, source-mismatch,
+#   kimi-unverified, codex-unverified, capture-failed, no-target
+#
+# Classification (fm_busy_classify): busy | idle | unknown | dead, always
+# with the producing source as the second token. Precedence:
+#   1. dead endpoint (fm_busy_classify_live only) -> dead endpoint-gone
+#   2. standalone Kimi before verification       -> unknown kimi-unverified
+#   3. a valid, gen-matching, source-trusted record -> its state and source
+#   4. no record at all: the rendered-tail fallback decides.
+#      (generation state is sufficient for busy, not for idle), then the
+#      muse session-log and cursor transcript pull sources, then the Grok-only
+#      temporary regex fallback classifies a grok task from its rendered tail,
+#      then unknown missing
+#   5. malformed, stale, or untrusted records -> unknown, never a fallback
+# The Grok arm is the ONLY rendered-text classification that survives the
+# redesign, because Grok's structured lifecycle was not credited-live-verified
+# in the approved audit; it is scoped to harness=grok and can never classify
+# another adapter. The delivery guards in bin/fm-composer-lib.sh match rendered
+# footers for submit acknowledgement and away-mode supervisor injection only;
+# neither is a recorded worker state source.
+#
+# The muse pull source is semantic, not rendered: it folds muse's own durable
+# session event log. It has no writer, no arm, and no gen, because
+# muse's default build ships no hook or plugin surface that could push events
+# (its plugin engine reports "plugins are not available in this build" without
+# MUSE_EXPERIMENTAL_PLUGINS). Nothing is armed for muse for the same reason
+# standalone Kimi is not: a seeded record with no writer could never be
+# cleared. See fm_busy_muse_run_state for the fold.
+#
+# The cursor pull source works the same way and for the same reason: it folds
+# cursor's own durable per-conversation transcript, which brackets each turn
+# with a role:user open and a typed turn_ended close that covers aborts. It has
+# no writer, no arm, and no gen, so nothing is seeded that could never be
+# cleared. See fm_busy_cursor_turn_state for the fold. Cursor's rendered
+# `ctrl+c to stop` footer is deliberately not a state source here.
+#
+# Codex negotiation (fm_busy_codex_appserver_observable,
+# fm_busy_codex_hooks_verified): the approved contract prefers Codex's
+# app-server turn lifecycle with capability negotiation, and sanctions its
+# stable lifecycle hooks as the intermediate. Neither is usable on the
+# installed binary, so Codex classifies unknown codex-unverified rather than
+# falling back to idle, and fm-spawn installs no Codex busy wiring.
+# docs/verification/supervision.md owns the evidence for both probes.
+#
+# Sourcing: set -u and set -e safe; no subshell-unfriendly globals.
+
 FM_BUSY_LIB_VERSION=v1
 
 # Standalone-Kimi verification gate. Empty means no installed Kimi version
@@ -751,7 +839,7 @@ fm_busy_grok_tail_busy() {
 # if available, else reports unknown capture-failed.
 fm_busy_classify() {  # <backend> <target> <harness> <id> <state-dir> [tail40]
   local backend=$1 target=$2 harness=$3 id=$4 state=$5 tail40=${6-}
-  local out rc r_state r_source native log
+  local out rc r_state r_source log
   case "$harness" in
     kimi*)
       if ! fm_busy_kimi_verified; then

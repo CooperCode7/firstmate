@@ -633,19 +633,13 @@ keyed_decision_text() {  # <source> <task-id> <answer> <label>
   [ -z "$4" ] || printf 'Answer as shown to the captain: %s\n' "$4"
 }
 
-legacy_keyed_decision_text() {  # <source> <key> <answer> <label>
-  printf 'Captain answered this decision through %s.\n' "$1"
-  printf 'Decision key: %s\n' "$2"
-  printf 'Answer: %s\n' "$3"
-  [ -z "$4" ] || printf 'Answer as shown to the captain: %s\n' "$4"
-}
 
 sanitize_field() {  # <text>
   printf '%s' "$1" | tr '\n\r\t' '   ' | LC_ALL=C tr -d '\000-\037\177' | cut -c1-512
 }
 
 command_answers() {
-  local origin='' source='' row rest key answer label mode id show state hold_kind body digest legacy_digest legacy_key
+  local origin='' source='' row rest key answer label mode id show state hold_kind body digest
   local recorded_digest recorded_mode tmp err closed=0 skipped=0 reason release_flag tab=$'\t'
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -700,18 +694,6 @@ command_answers() {
     keyed_decision_text "$source" "$id" "$answer" "$label" > "$tmp" \
       || fail "cannot stage the captain decision for $id"
     digest=$(sha256_text "$(cat "$tmp")")
-    legacy_digest=''
-    if [ "$id" != "$key" ]; then
-      legacy_key=$key
-    elif { [ -z "$origin" ] || [ "$origin" = "$BINDING_ANY" ]; } \
-      && [ "${id#*-decision-}" != "$id" ]; then
-      legacy_key=${id#*-decision-}
-    else
-      legacy_key=''
-    fi
-    if [ -n "$legacy_key" ]; then
-      legacy_digest=$(sha256_text "$(legacy_keyed_decision_text "$source" "$legacy_key" "$answer" "$label")")
-    fi
     show=$(task_show "$id") || { printf 'skipped: %s (absent)\n' "$id"; skipped=$((skipped + 1)); continue; }
     state=$(show_field "$show" state)
     hold_kind=$(show_field_value "$show" hold_kind)

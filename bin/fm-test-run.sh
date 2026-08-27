@@ -90,7 +90,6 @@ PORTABLE_SERIAL_SHARDS=4
 # Balance hint for a portable-serial script with no measured duration, close to
 # the measured per-script mean so a newly added test neither starves nor
 # overloads the shard it lands in.
-PORTABLE_SERIAL_DEFAULT_WEIGHT_MS=20000
 
 usage() {
   awk '

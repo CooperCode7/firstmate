@@ -67,111 +67,8 @@ path_is_ancestor_of() {
   return 1
 }
 
-VALIDATED_HOME=""
-VALIDATION_ERROR=""
 
-validate_operational_dirs() {
-  local abs_home=$1 abs_active_home=$2 abs_root=$3 name dir abs_dir
-  for name in data state config projects; do
-    dir="$abs_home/$name"
-    if [ -L "$dir" ] && [ ! -e "$dir" ]; then
-      VALIDATION_ERROR="secondmate $name directory must resolve inside the secondmate home"
-      return 1
-    fi
-    if [ -d "$dir" ]; then
-      abs_dir=$(cd "$dir" && pwd -P) || {
-        VALIDATION_ERROR="secondmate $name directory cannot be resolved"
-        return 1
-      }
-    elif [ -e "$dir" ]; then
-      VALIDATION_ERROR="secondmate $name path is not a directory"
-      return 1
-    else
-      abs_dir="$abs_home/$name"
-    fi
-    if ! path_is_ancestor_of "$abs_home" "$abs_dir"; then
-      VALIDATION_ERROR="secondmate $name directory must resolve inside the secondmate home"
-      return 1
-    fi
-    if [ "$abs_dir" = "$abs_active_home" ] || path_is_ancestor_of "$abs_active_home" "$abs_dir"; then
-      VALIDATION_ERROR="secondmate $name directory cannot be inside the active firstmate home"
-      return 1
-    fi
-    if [ "$abs_dir" = "$abs_root" ] || path_is_ancestor_of "$abs_root" "$abs_dir"; then
-      VALIDATION_ERROR="secondmate $name directory cannot be inside the firstmate repo"
-      return 1
-    fi
-  done
-}
 
-validate_secondmate_home() {
-  local id=$1 home=$2 abs_home abs_active_home abs_root marker_id
-  VALIDATED_HOME=""
-  VALIDATION_ERROR=""
-  abs_home=$(resolved_existing_dir "$home") || {
-    VALIDATION_ERROR="not a directory"
-    return 1
-  }
-  abs_active_home=$(resolved_existing_dir "$FM_HOME") || {
-    VALIDATION_ERROR="active firstmate home is not a directory"
-    return 1
-  }
-  abs_root=$(resolved_existing_dir "$FM_ROOT") || {
-    VALIDATION_ERROR="firstmate repo is not a directory"
-    return 1
-  }
-  if [ "$abs_home" = "/" ]; then
-    VALIDATION_ERROR="secondmate home cannot be the filesystem root"
-    return 1
-  fi
-  if [ "$abs_home" = "$abs_active_home" ]; then
-    VALIDATION_ERROR="secondmate home cannot be the active firstmate home"
-    return 1
-  fi
-  if [ "$abs_home" = "$abs_root" ]; then
-    VALIDATION_ERROR="secondmate home cannot be the firstmate repo"
-    return 1
-  fi
-  if path_is_ancestor_of "$abs_active_home" "$abs_home"; then
-    VALIDATION_ERROR="secondmate home cannot be inside the active firstmate home"
-    return 1
-  fi
-  if path_is_ancestor_of "$abs_root" "$abs_home"; then
-    VALIDATION_ERROR="secondmate home cannot be inside the firstmate repo"
-    return 1
-  fi
-  if path_is_ancestor_of "$abs_home" "$abs_active_home"; then
-    VALIDATION_ERROR="secondmate home cannot be an ancestor of the active firstmate home"
-    return 1
-  fi
-  if path_is_ancestor_of "$abs_home" "$abs_root"; then
-    VALIDATION_ERROR="secondmate home cannot be an ancestor of the firstmate repo"
-    return 1
-  fi
-  validate_operational_dirs "$abs_home" "$abs_active_home" "$abs_root" || return 1
-  if [ -L "$abs_home/$SUB_HOME_MARKER" ]; then
-    VALIDATION_ERROR="secondmate marker must not be a symlink"
-    return 1
-  fi
-  if [ ! -f "$abs_home/$SUB_HOME_MARKER" ]; then
-    VALIDATION_ERROR="not a seeded secondmate home"
-    return 1
-  fi
-  marker_id=$(cat "$abs_home/$SUB_HOME_MARKER" 2>/dev/null || true)
-  if [ "$marker_id" != "$id" ]; then
-    VALIDATION_ERROR="marked for secondmate ${marker_id:-unknown}, expected $id"
-    return 1
-  fi
-  if [ ! -f "$abs_home/AGENTS.md" ]; then
-    VALIDATION_ERROR="not a firstmate home (missing AGENTS.md)"
-    return 1
-  fi
-  if [ ! -d "$abs_home/bin" ]; then
-    VALIDATION_ERROR="not a firstmate home (missing bin/)"
-    return 1
-  fi
-  VALIDATED_HOME="$abs_home"
-}
 
 # A single fetch refreshes every worktree that shares an object store, so fetch
 # each distinct git-common-dir at most once. Used ONLY by the origin base mode;
@@ -314,7 +211,9 @@ ff_target() {
     return 0
   fi
   after=$(git -C "$dir" rev-parse --short HEAD)
+  # shellcheck disable=SC2034 # ff_target output contract, read by bin/fm-update.sh
   FF_STATUS="updated"
+  # shellcheck disable=SC2034 # ff_target output contract, read by bin/fm-update.sh
   FF_INSTR="$instr"
   if [ -n "$instr" ]; then
     echo "$label: updated $before..$after (instructions changed: $instr)"
@@ -324,9 +223,5 @@ ff_target() {
   return 0
 }
 
-# Sweep accumulators. The caller resets both before a sweep and reads
-# FF_NUDGE_WINDOWS after.
-FF_NUDGE_WINDOWS=""
-FF_SEEN_HOMES=""
 
 

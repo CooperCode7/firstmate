@@ -180,7 +180,6 @@ FM_SNAPSHOT_REGISTRY_TIMEOUT, with unavailability and truncation disclosed.
 EOF
 }
 
-OUTPUT_MODE=json
 case "${1:---json}" in
   --json) ;;
   -h|--help) usage; exit 0 ;;
@@ -419,7 +418,7 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
 
 task_json_lines() {
   local meta id kind harness mode yolo project worktree home projects backend target status_log report_path
-  local remote_host remote_root remote_state remote_rc remote_home_present
+ local remote_host remote_root remote_home_present
   local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
   local open_decisions_tsv open_decisions_json

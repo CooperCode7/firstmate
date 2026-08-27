@@ -69,7 +69,6 @@ fi
 FM_AFK_LAUNCH_STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 FM_AFK_LAUNCH_RECORD="$FM_AFK_LAUNCH_STATE/.afk-daemon-terminal"
 FM_AFK_LAUNCH_LOCK="$FM_AFK_LAUNCH_STATE/.afk-launch.lock"
-FM_AFK_LAUNCH_WS_LABEL="firstmate-afk-daemon"
 
 # shellcheck source=bin/fm-backend.sh
 . "$FM_AFK_LAUNCH_DIR/fm-backend.sh"
@@ -211,7 +210,7 @@ fm_afk_launch_close_terminal() {  # <backend> <target>
 }
 
 fm_afk_launch_terminal_absent() {  # <backend> <target>
-  local backend=$1 target=$2 session pane out result code
+ local backend=$1 target=$2 session pane out result
   case "$backend" in
     tmux)
       out=$(tmux has-session -t "$target" 2>&1)

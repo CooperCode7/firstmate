@@ -1,3 +1,117 @@
+#!/usr/bin/env bash
+# bin/fm-composer-lib.sh - the ONE fleet-wide owner of composer classification:
+# every shape a verified harness draws, every glyph, every container proof, and
+# the empty|pending|pending-unproven|unknown verdict, shared by every
+# session-provider adapter (tmux via bin/fm-tmux-lib.sh) and by fm-spawn.sh's
+# launch-readiness check.
+#
+# WHY THIS EXISTS (tasks fm-composer-shellglyph-safety and
+# fm-composer-thin-adapter-refactor-r1): the adapters each carried their own
+# copy of composer shape knowledge, and every copy drifted. The audited result
+# (data/fm-composer-consolidation-audit-s1) was a 5-adapter x 6-harness matrix
+# in which no adapter was right about more than five harnesses, no two adapters
+# were wrong in the same places, and one harness was unreadable everywhere.
+# The consolidation rule that prevents a recurrence: an adapter CAPTURES a
+# screen and DESCRIBES its capabilities; it never classifies. A new harness
+# shape is taught to fm_composer_classify_screen below, once, and every backend
+# that can capture a screen learns it in the same commit.
+#
+# THE CAPABILITY MODEL: adapters differ in what their capture primitive can
+# see, and those differences enter here as DATA (the <caps> argument), never as
+# adapter code. Capability differences change how CONFIDENTLY a shape can be
+# judged; they never change what the shapes ARE:
+#   styled=1    the capture preserves ANSI styling, so ghost/placeholder text
+#               is detectable and can be stripped (tmux -e, herdr --format
+#               ansi, zellij dump-screen --ansi). With styled=0 (cmux, orca)
+#               ghost text is unreadable, so a bare glyph row or left-bar row
+#               carrying trailing non-idle text degrades to `unknown` rather
+#               than `pending`: the text may be the harness's own idle
+#               suggestion, and a false `pending` blocks every safe caller.
+#   cursor=1    a cursor row is supplied (tmux #{cursor_y} only). The cursor
+#               anchors shape selection: the shape containing the cursor is the
+#               composer. Without it, the bottom-most shape wins.
+#   identity=1  a native agent identity/state probe exists (herdr `agent get`;
+#               the tmux pi foreground-process probe). Identity is what makes
+#               Pi's blank separated composer provable; with identity=0 that
+#               shape stays `unknown`.
+#   rows=<n>    the capture's bounded row count (informational).
+#
+# THE STRICT BLANK-ROW RULE (captain decision blank-row-injection-posture,
+# 2026-08-09): a blank or otherwise unidentified input row with no positive
+# container proof is `unknown` and callers defer. This replaced tmux's
+# permissive "blank cursor row = empty = safe to inject" rule fleet-wide: a
+# blank row under the cursor can be a modal dialog, a dead shell between
+# transcript rules, or a mid-redraw pane, and the away-mode injector types
+# escalations into whatever it calls empty. Positive container proof means one
+# of the shapes in the catalogue below.
+#
+# THE SHAPE CATALOGUE (all verified against real harnesses; byte-level
+# captures in data/fm-composer-consolidation-audit-s1/report.md and
+# docs/verification/runtime-backends.md):
+#   bordered   - a complete boxed composer: a top border, side-bordered content
+#                rows of the same family, and a bottom border (grok, kimi,
+#                older claude). The bottom border may carry a TITLE (grok
+#                writes its model name there); a titled bottom border that
+#                still starts and ends with the family's rule glyph is
+#                tolerated, not ambiguity.
+#   bare       - an agent prompt glyph row with no border at all (claude `❯`,
+#                codex `›`, muse `⟩`, cursor `→`). The agent glyph is itself the container
+#                proof; a bare SHELL glyph (`>` `$` `%` `#`) never is.
+#   left-bar   - opencode: rows prefixed by a heavy left bar `┃` with no
+#                closing border, holding the idle hint, blank rows, and a
+#                mode/model footer line.
+#   separated  - pi: content rows between two solid horizontal `─` rules, no
+#                glyph and no side border. Provable only with a live agent
+#                identity reporting an idle/done pi (herdr `agent
+#                get`; the tmux foreground-process probe), because a blank
+#                region between two transcript rules is otherwise exactly the
+#                strict rule's unidentifiable blank row.
+#
+# THE SAFETY RULE for glyphs: a bare shell prompt glyph (`>` `$` `%` `#`) -
+# what a pane shows once its agent has exited to a plain login shell - is a
+# genuine empty agent composer ONLY inside a bordered container. On a bare row
+# it is a dead-shell prompt and classifies `unknown` (never a safe injection
+# target). The AGENT glyphs `❯` (claude), `›` (codex), `⟩` (U+27E9, muse),
+# and `→` (U+2192, cursor) are a genuine empty agent composer either way.
+# Both glyph sets are declared
+# exactly once below; every decision reaches them through the declarations.
+#
+# GHOST/PLACEHOLDER TEXT (task afk-herdr-false-pending): a harness fills an
+# otherwise-empty composer with de-emphasized ghost text - claude's rotating
+# prompt suggestion, codex's idle suggestion, grok's placeholder, or cursor's
+# idle placeholder - which a
+# plain capture cannot tell apart from text a human typed.
+# fm_composer_strip_ghost is the ONE ANSI-aware extractor of "real typed
+# content": it drops every de-emphasized run - dim/faint (SGR 2) AND a
+# dark/muted TRUECOLOR foreground - and keeps only normal-intensity,
+# normally-coloured text.
+#
+# UNICODE WHITESPACE (issue #1988; open PRs #1995/#2047 target the same
+# defect and #1995's naming is adopted here so the implementations converge):
+# a harness may separate its prompt glyph from composer content with a
+# non-ASCII space. Real claude 2.x draws its EMPTY composer as exactly `❯`
+# followed by U+00A0 NO-BREAK SPACE. POSIX `[[:space:]]` includes U+00A0 only
+# under some locales, so every trim used to be locale-dependent: the same live
+# pane read `empty` under a UTF-8 shell and `pending` under LC_ALL=C (a
+# daemon, launchd, or ssh context), deferring every away-mode escalation.
+# fm_composer_normalize_trim_var is the one fix: it maps every code point
+# Unicode gives the property White_Space=Yes outside ASCII onto a plain ASCII
+# space before any trim or comparison, byte-exactly, so the verdict cannot
+# depend on the ambient locale. Glyph strips use literal byte-exact pattern
+# removal for the same reason: `${v#?}` removes one BYTE under LC_ALL=C and
+# one CHARACTER under UTF-8, which used to leave partial multibyte residue.
+#
+# Re-sourcing is a cheap idempotent redefinition, so this file needs no
+# include guard (matching bin/fm-tmux-lib.sh).
+
+# fm_composer_strip_ansi: drop every CSI escape sequence, leaving plain text.
+# Used for STRUCTURAL row/shape detection, where ghost text must be KEPT so the
+# composer box border or bare prompt glyph is still visible; content extraction
+# uses fm_composer_strip_ghost instead. Reads the styled text on stdin and prints
+# plain text (stdin-only, matching fm_composer_strip_ghost). The character class
+# includes ':' so an ITU colon-form SGR (38:2::r:g:b) is stripped whole, not left
+# with a dangling tail.
+
 # fm_composer_strip_ansi: drop every CSI escape sequence, leaving plain text.
 # Used for STRUCTURAL row/shape detection, where ghost text must be KEPT so the
 # composer box border or bare prompt glyph is still visible; content extraction

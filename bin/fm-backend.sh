@@ -43,10 +43,8 @@ fm_backend_is_known() {  # <name>
 
 fm_backend_detect() {
   FM_BACKEND_DETECTED=""
-  FM_BACKEND_DETECT_SIGNAL=""
   if [ -n "${TMUX:-}" ]; then
     FM_BACKEND_DETECTED=tmux
-    FM_BACKEND_DETECT_SIGNAL=TMUX
     printf 'tmux'
     return 0
   fi
@@ -64,7 +62,7 @@ fm_backend_detect() {
 # notice (both are experimental); auto-detecting tmux stays silent - it is
 # distinct from the primary-marker case.
 fm_backend_name() {
-  local line v detected marker
+ local line v
   if [ -n "${FM_BACKEND:-}" ]; then
     printf '%s' "$FM_BACKEND"
     return 0
@@ -172,7 +170,7 @@ fm_backend_meta_exact_value() {  # <meta-file> <key>
 
 fm_backend_validate_task_endpoint() {  # <meta-file> <task-id>
   local meta=$1 id=$2 backend_count backend window worktree project binding_count binding
-  local session pane recorded_session workspace tab terminal worktree_id surface
+ local session pane terminal
   FM_BACKEND_VALIDATED_BACKEND=
   FM_BACKEND_VALIDATED_TARGET=
   [ -f "$meta" ] && [ ! -L "$meta" ] || {
@@ -456,7 +454,7 @@ fm_backend_composer_state() {  # <backend> <target> [expected-label] -> empty|pe
 # primitive so callers that only need a fast alive/dead read (recovery
 # digests, the session-start fleet digest) do not re-derive it inline.
 fm_backend_target_exists() {  # <backend> <target> [expected-label]
-  local backend=$1 target=$2 expected_label=${3:-} session pane
+ local backend=$1 target=$2 session pane
   case "$backend" in
     tmux)
       tmux display-message -p -t "$target" '#{pane_id}' >/dev/null 2>&1

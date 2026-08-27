@@ -152,7 +152,6 @@
 # path do not pay it.
 set -eu
 
-FM_SEND_ORIGINAL_ARGS=("$@")
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
@@ -253,7 +252,7 @@ fm_send_record_interrupt() {  # <key>
 
 
 fm_send_resolve_target() {  # <raw-target>
-  local raw=$1 meta pane_meta target backend assumed colons id session hint
+ local raw=$1 meta target backend assumed id session
 
   RESOLVED_TARGET=""
   TARGET_BACKEND=""

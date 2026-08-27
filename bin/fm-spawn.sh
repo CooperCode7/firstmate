@@ -563,7 +563,6 @@ fi
 SPAWN_TASK_LOCK_HELD=1
 PROJ=
 ARG3=
-FIRSTMATE_HOME=
 
 # --relaunch adoption: every identity axis comes from the task's own validated
 # durable record, never from the command line, so a relaunch can only ever
