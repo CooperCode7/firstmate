@@ -136,12 +136,6 @@
 # success line and state/<id>.meta omit them.
 # Every fresh spawn or relaunch records a new spawn_gen= incarnation token so durable
 # consumers can distinguish a replacement worker that reuses the same task id.
-# When the home session's frozen trace-context decision is enabled (see
-# docs/configuration.md and bin/fm-trace-context-lib.sh), the meta also records
-# one W3C traceparent= carrier, the same value injected into the pane as
-# TRACEPARENT; the default-off path writes neither, leaving the generated meta
-# and launch environment unchanged.
-#   --traceparent <carrier> delivers a carrier that a REMOTE parent already
 #   resolved and will record, instead of resolving one from this home's frozen
 #   identity is owned by the parent home that holds its task metadata, while the
 #   Local spawns never pass it and resolve their own carrier exactly as before.
@@ -202,8 +196,6 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-cursor-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
-# shellcheck source=bin/fm-trace-context-lib.sh
-. "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -218,14 +210,12 @@ EFFORT=
 BACKEND_ARG=
 MODE=
 YOLO=
-TRACEPARENT_ARG=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
 BACKEND_SET=0
 MODE_SET=0
 YOLO_SET=0
-TRACEPARENT_SET=0
 RELAUNCH=0
 POS=()
 want_value=
@@ -241,7 +231,6 @@ for a in "$@"; do
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
-      traceparent) TRACEPARENT_ARG=$a; TRACEPARENT_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -262,8 +251,6 @@ for a in "$@"; do
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
     --yolo) want_value=yolo ;;
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
-    --traceparent) want_value=traceparent ;;
-    --traceparent=*) TRACEPARENT_ARG=${a#--traceparent=}; TRACEPARENT_SET=1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -274,19 +261,7 @@ done
 [ "$BACKEND_SET" -eq 0 ] || [ -n "$BACKEND_ARG" ] || { echo "error: --backend requires a non-empty value" >&2; exit 1; }
 [ "$MODE_SET" -eq 0 ] || [ -n "$MODE" ] || { echo "error: --mode requires a non-empty value" >&2; exit 1; }
 [ "$YOLO_SET" -eq 0 ] || [ -n "$YOLO" ] || { echo "error: --yolo requires a non-empty value" >&2; exit 1; }
-[ "$TRACEPARENT_SET" -eq 0 ] || [ -n "$TRACEPARENT_ARG" ] || { echo "error: --traceparent requires a non-empty value" >&2; exit 1; }
 # A parent-delivered carrier replaces this home's own resolution, so it is
-# Nothing else may reach the pane's TRACEPARENT export.
-if [ "$TRACEPARENT_SET" -eq 1 ]; then
-  {
-    echo "error: --traceparent is not supported; each spawn resolves its own carrier from this home's frozen trace-context decision" >&2
-    exit 1
-  }
-  fm_trace_context_valid "$TRACEPARENT_ARG" || {
-    echo "error: --traceparent is not a valid W3C traceparent" >&2
-    exit 1
-  }
-fi
 case "$EFFORT" in
   ''|low|medium|high|xhigh|max) ;;
   *) echo "error: --effort must be one of low, medium, high, xhigh, max" >&2; exit 1 ;;
@@ -1600,31 +1575,6 @@ EOF
     ;;
 esac
 
-# Resolve the optional default-off W3C trace context (bin/fm-trace-context-lib.sh,
-# docs/configuration.md): the one carrier both recorded in meta and injected into
-# the pane, so an observer reads exactly what the child receives. Empty only when
-# disabled or on entropy/validation failure. Reuses this task's already-recorded
-# value on relaunch; any other spawn roots a fresh trace, never adopting this
-# process's own ambient TRACEPARENT, so each routed task is its own trace
-# boundary even under a persistent supervisor. Never aborts the spawn and adds
-# only the cost of reading a few bytes of entropy.
-#
-# The session-start path owns input resolution. Spawn consumes only the frozen
-#
-# that owns the task's identity: the parent home resolved and will record the
-# carrier, and this host only delivers it. The validated --traceparent value
-# agrees with the carrier it receives exactly as on the local path.
-if [ "$TRACEPARENT_SET" -eq 1 ]; then
-SPAWN_TRACE_EFFECTIVE=on
-SPAWN_TRACEPARENT=$TRACEPARENT_ARG
-else
-SPAWN_TRACE_EFFECTIVE=$(fm_trace_context_session_effective "$STATE/.trace-context-effective")
-if [ "$SPAWN_TRACE_EFFECTIVE" = on ]; then
-  SPAWN_TRACEPARENT=$(FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CONFIG" "$STATE/$ID.meta" || true)
-else
-  SPAWN_TRACEPARENT=
-fi
-fi
 
 META_WINDOW=$T
 SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
@@ -1639,7 +1589,7 @@ fi
 preserve_relaunch_meta() {
 awk -F= '
   BEGIN {
-    split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend home projects control_relaunch_tx", keys, " ")
+    split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen backend home projects control_relaunch_tx", keys, " ")
     for (i in keys) owned[keys[i]] = 1
   }
   !($1 in owned)
@@ -1659,7 +1609,6 @@ echo "model=${MODEL:-default}"
 echo "effort=${EFFORT:-default}"
 [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
 echo "spawn_gen=$SPAWN_GEN"
-# Default-off writes no traceparent= line.
 # backend= is written only for a non-default (non-tmux) backend, so the
 # default path's meta stays byte-identical (absent backend= means tmux;
 # data/fm-backend-design-d7's P1 compatibility contract).
@@ -1724,49 +1673,10 @@ esac
 if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
 LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
 fi
-if [ -z "$SPAWN_TRACEPARENT" ] && [ "$RELAUNCH" -eq 1 ]; then
-LAUNCH="unset TRACEPARENT; $LAUNCH"
-fi
-
-spawn_record_traceparent() {
-local meta="$STATE/$ID.meta" tmp status=0
-SPAWN_META_LOCK=$(fm_meta_lock_path "$meta") || return 1
-fm_lock_acquire_wait "$SPAWN_META_LOCK"
-SPAWN_META_LOCK_HELD=1
-SPAWN_META_TMP="$STATE/.$ID.meta.trace.${BASHPID:-$$}"
-if [ ! -f "$meta" ] || [ ! -w "$meta" ] \
-   || ! awk -F= '$1 != "traceparent"' "$meta" > "$SPAWN_META_TMP" \
-   || ! printf 'traceparent=%s\n' "$SPAWN_TRACEPARENT" >> "$SPAWN_META_TMP" \
-   || ! mv -f "$SPAWN_META_TMP" "$meta"; then
-  status=1
-  rm -f "$SPAWN_META_TMP" 2>/dev/null || true
-fi
-SPAWN_META_TMP=
-fm_lock_release "$SPAWN_META_LOCK" || status=1
-SPAWN_META_LOCK_HELD=0
-return "$status"
-}
-
 # Export GOTMPDIR into the crewmate's pane shell so the agent and every child
 # process (go build, go test, ...) inherit it. Sent before the launch command so
 # the env is set when the agent starts; the brief sleep lets the export land.
 spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
-# Send through the exact channel that already ships GOTMPDIR, so every backend
-# entirely when trace context is off.
-if [ -n "$SPAWN_TRACEPARENT" ]; then
-if spawn_send_text_line "$T" "export TRACEPARENT=$SPAWN_TRACEPARENT"; then
-  if ! spawn_record_traceparent; then
-    LAUNCH="unset TRACEPARENT; $LAUNCH"
-  fi
-else
-  TRACE_SEND_STATUS=$?
-  if [ "$TRACE_SEND_STATUS" -eq 2 ]; then
-    echo "error: trace-context input could not be cleared for $W; refusing to append the launch command" >&2
-    exit 1
-  fi
-  LAUNCH="unset TRACEPARENT; $LAUNCH"
-fi
-fi
 sleep 0.3
 spawn_send_literal "$T" "$LAUNCH"
 sleep 0.3

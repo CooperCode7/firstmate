@@ -68,10 +68,6 @@
     {
       "source": "docs/tmux-backend.md",
       "target": "docs/verification/runtime-backends.md"
-    },
-    {
-      "source": "docs/trace-context.md",
-      "target": "docs/verification/trace-context.md"
     }
   ],
   "surfaces": [
@@ -200,10 +196,6 @@
       "audience": "operator-example"
     },
     {
-      "path": "docs/examples/watched-tools.json",
-      "audience": "operator-example"
-    },
-    {
       "path": "docs/examples/wedge-alarm",
       "audience": "operator-example"
     },
@@ -256,10 +248,6 @@
       "audience": "operator-current"
     },
     {
-      "path": "docs/trace-context.md",
-      "audience": "maintainer-architecture"
-    },
-    {
       "path": "docs/turnend-guard.md",
       "audience": "operator-current"
     },
@@ -285,10 +273,6 @@
     },
     {
       "path": "docs/verification/supervision.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "docs/verification/trace-context.md",
       "audience": "maintainer-verification"
     },
     {

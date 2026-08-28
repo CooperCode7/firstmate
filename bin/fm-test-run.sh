@@ -125,10 +125,10 @@ now_ms() {
 # unclassified so new tests are still runnable and visible in summaries.
 family_for_basename() {
   case "$1" in
-    fm-arm-pretool-check.test.sh|fm-ask-user-authority.test.sh|fm-bearings-board.test.sh|fm-brief.test.sh|fm-vendor-auth-probe.test.sh|fm-cd-pretool-check.test.sh|fm-classify-decision-key.test.sh|fm-composer-ghost.test.sh|fm-composer-lib.test.sh|fm-crew-state.test.sh|fm-captain-hold-lifecycle.test.sh|fm-documentation-audiences.test.sh|fm-ensure-agents-md.test.sh|fm-grok-harness.test.sh|fm-kimi-harness.test.sh|fm-muse-harness.test.sh|fm-lint.test.sh|fm-lint-workflows.test.sh|fm-operational-input.test.sh|fm-pi-primary-types.test.sh|fm-send-popup-settle.test.sh|fm-send-settle.test.sh|fm-subagent-pretool-check.test.sh|fm-supervision-instructions.test.sh|fm-task-delivery.test.sh|fm-tmux-submit-busy.test.sh|fm-trace-context-lib.test.sh|fm-test-run.test.sh)
+    fm-arm-pretool-check.test.sh|fm-ask-user-authority.test.sh|fm-bearings-board.test.sh|fm-brief.test.sh|fm-vendor-auth-probe.test.sh|fm-cd-pretool-check.test.sh|fm-classify-decision-key.test.sh|fm-composer-ghost.test.sh|fm-composer-lib.test.sh|fm-crew-state.test.sh|fm-captain-hold-lifecycle.test.sh|fm-documentation-audiences.test.sh|fm-ensure-agents-md.test.sh|fm-grok-harness.test.sh|fm-kimi-harness.test.sh|fm-muse-harness.test.sh|fm-lint.test.sh|fm-lint-workflows.test.sh|fm-operational-input.test.sh|fm-pi-primary-types.test.sh|fm-send-popup-settle.test.sh|fm-send-settle.test.sh|fm-subagent-pretool-check.test.sh|fm-supervision-instructions.test.sh|fm-task-delivery.test.sh|fm-tmux-submit-busy.test.sh|fm-test-run.test.sh)
       printf '%s\n' pure-contract-unit
       ;;
-    fm-daemon.test.sh|fm-guard-stale-banner.test.sh|fm-pi-watch-extension.test.sh|fm-session-lock-ancestry.test.sh|fm-cursor-primary.test.sh|fm-turnend-guard.test.sh|fm-wake-daemon-lifecycle-e2e.test.sh|fm-wake-drain-unread-status.test.sh|fm-tool-update-check.test.sh|fm-wake-queue.test.sh|fm-watch-arm.test.sh|fm-watch-checkpoint.test.sh|fm-watch-recovery-loop.test.sh|fm-watch-triage.test.sh|fm-task-inbox.test.sh|fm-watcher-lock.test.sh|fm-inactive-reconcile.test.sh)
+    fm-daemon.test.sh|fm-guard-stale-banner.test.sh|fm-pi-watch-extension.test.sh|fm-session-lock-ancestry.test.sh|fm-cursor-primary.test.sh|fm-turnend-guard.test.sh|fm-wake-daemon-lifecycle-e2e.test.sh|fm-wake-drain-unread-status.test.sh|fm-wake-queue.test.sh|fm-watch-arm.test.sh|fm-watch-checkpoint.test.sh|fm-watch-recovery-loop.test.sh|fm-watch-triage.test.sh|fm-task-inbox.test.sh|fm-watcher-lock.test.sh|fm-inactive-reconcile.test.sh)
       printf '%s\n' watcher-wake-lock
       ;;
     fm-afk-launch.test.sh|fm-startup-memory-budget.test.sh)
@@ -140,7 +140,7 @@ family_for_basename() {
     fm-composer-matrix-live-e2e.test.sh|fm-codex-continuity-live-e2e.test.sh|fm-grok-continuity-live-e2e.test.sh|fm-cursor-primary-live-e2e.test.sh|fm-grok-stop-live-e2e.test.sh|fm-harness-liveness-drift-live-e2e.test.sh|fm-muse-signals-live-e2e.test.sh|fm-opencode-primary-live-e2e.test.sh|fm-pi-branch-live-e2e.test.sh|fm-pi-primary-live-e2e.test.sh|fm-sessionstart-hook-live-e2e.test.sh|fm-sessionstart-instruction-refresh-live-e2e.test.sh|fm-quota-array-dispatch-live-e2e.test.sh|fm-send-inbox-doorbell-live-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
-    fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|fm-tmux-agent-liveness.test.sh|fm-control.test.sh|fm-control-relaunch.test.sh|fm-send-resolve-key.test.sh|fm-send-strict.test.sh|fm-send-inbox.test.sh|fm-spawn-batch.test.sh|fm-spawn-dispatch-profile.test.sh|fm-trace-context-spawn.test.sh|fm-spawn-worktree-settle.test.sh|fm-teardown-endpoint-safety.test.sh)
+    fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|fm-tmux-agent-liveness.test.sh|fm-control.test.sh|fm-control-relaunch.test.sh|fm-send-resolve-key.test.sh|fm-send-strict.test.sh|fm-send-inbox.test.sh|fm-spawn-batch.test.sh|fm-spawn-dispatch-profile.test.sh|fm-spawn-worktree-settle.test.sh|fm-teardown-endpoint-safety.test.sh)
       printf '%s\n' backend-dispatch
       ;;
     fm-pr-check-security.test.sh|fm-pr-merge.test.sh|fm-review-diff.test.sh|fm-teardown.test.sh)

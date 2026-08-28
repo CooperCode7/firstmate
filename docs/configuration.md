@@ -74,14 +74,6 @@ An absent file means `auto`, i.e. default-on on macOS: the alarm exists precisel
 A missing or failing channel logs and falls through to the next, never crashing the daemon.
 See [`wedge-alarm.md`](wedge-alarm.md) for the current channel reference, [`verification/supervision.md`](verification/supervision.md#wedge-alarm-channels) for active evidence, and [`examples/wedge-alarm`](examples/wedge-alarm) for a copyable config.
 
-## Trace context propagation (config/trace-context / FM_TRACE_CONTEXT)
-
-The optional local, gitignored `config/trace-context` presence flag enables default-off native W3C trace-context propagation.
-`FM_TRACE_CONTEXT` overrides the file: `1`/`on`/`true`/`yes` enables, any other non-empty value disables, and unset or empty defers to the file.
-Each locked home session resolves those inputs once, and all spawns from that home use the frozen decision until a new session starts.
-The presence flag is session-scoped enablement, so it transfers at launch and is left unchanged by live convergence into a running home.
-See [`trace-context.md`](trace-context.md) for carrier semantics, supported routes, the manual fleet-restart requirement, the session boundary, and safety limits; `bin/fm-trace-context-lib.sh`'s header owns the exact mechanics, and [`verification/trace-context.md`](verification/trace-context.md) records repeatable evidence.
-
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh` so local lint matches CI.
@@ -229,65 +221,6 @@ For a mid-session inherited local-material edit where tracked-file sync is not n
 A changed remote home instead receives one durably recorded marked re-read instruction after the allowlisted bytes have transferred because primary-local generation paths are not meaningful on another host.
 Skipped items, such as a destination checkout that does not yet gitignore the item, are visible warnings but not hard failures.
 
-## Watched tool updates (config/watched-tools.json)
-
-`config/watched-tools.json` is an optional local, gitignored list of the tools this home depends on.
-When it is present and the check is armed, [`bin/fm-tool-update-check.sh`](../bin/fm-tool-update-check.sh) reports two conditions, and keeps them deliberately distinct:
-
-- `<tool> update available` means a newer version exists at the tool's update source.
-- `<tool> update not in effect` means a newer copy is already installed on this host, but `PATH` still resolves an older one.
-
-The second condition is the reason the check exists.
-An update can install correctly and stay inert because an earlier `PATH` entry still holds an older copy, and a check that only asks whether a newer version is published reports that host as up to date.
-The script therefore runs every copy of a watched command found on `PATH` and asks it for its own version, rather than trusting one lookup or reading a version out of a directory name.
-It only reports; it never installs, updates, fetches, or changes `PATH`, a version manager, or any installed tool.
-
-This section is the single owner of the canonical schema.
-`bin/fm-tool-update-check.sh` owns probe mechanics, cadence, and the report record.
-
-```json
-{
-  "tools": [
-    {
-      "name": "<label used in the report>",
-      "command": "<optional bare executable name to find on PATH>",
-      "version_args": ["<optional args that make it print its version, default --version>"],
-      "announce_pattern": "<optional extended regex matching the tool's own update announcement>",
-      "announce_args": ["<optional args for the command that carries that announcement, default version_args>"],
-      "git": {
-        "repo": "<optional absolute path to a local clone>",
-        "remote": "<optional remote name, default origin>",
-        "branch": "<optional branch, default the remote's own default branch>"
-      }
-    }
-  ]
-}
-```
-
-Each entry needs a `name` and at least one of `command` or `git`; an entry may carry both.
-A `command` entry gives the `PATH` comparison above, and adding `announce_pattern` also reports the tool's own update announcement, which is how a tool that already reports its own updates is read rather than reimplemented.
-A tool does not always announce a new release on the command that prints its version: `no-mistakes --version` prints only the version, while its other commands carry the announcement.
-`announce_args` names the command to search for the announcement in that case, and it is asked only of the copy `PATH` resolves; without it the version probe's own output is searched.
-An `announce_pattern` that is not a usable extended regular expression stops `arm`, and during a sweep it is reported as that one tool's own check failure so one broken pattern never stops the other watched tools from being checked.
-A `git` entry reports how many commits the local clone is behind its remote branch, and stays silent when the clone is current or ahead.
-An omitted `branch` uses the remote's default branch, taken from the clone's own record of it and otherwise asked of the remote directly, so a `--single-branch` clone still resolves.
-Both probe kinds are read-only and bounded, and a probe that cannot answer is reported as a check failure rather than assumed current.
-See [`docs/examples/watched-tools.json`](examples/watched-tools.json) for a starting point to copy into local `config/watched-tools.json`.
-
-Arm the check once per home with `bin/fm-tool-update-check.sh arm`.
-That writes `state/tool-updates.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the existing watcher polls it on its normal cadence and turns its one line into a `check:` wake; no separate schedule is involved.
-The armed check runs whenever that home has a watcher running, and arming alone does not make watcher supervision required, so a home with no in-flight work and no other reason to watch does not start a watcher just for this check.
-`bin/fm-tool-update-check.sh disarm` removes the shim, its trust binding, and the report record.
-The check prints nothing when everything is current, and `state/.tool-updates` records the findings the last report was made from so the same pending update is reported once instead of on every poll.
-A changed or returning condition is reported again.
-Adding, removing, or changing a watched tool is an edit to this file and needs no code change or re-arming.
-
-`FM_TOOL_UPDATE_INTERVAL` (default 900 seconds, `0` to probe on every run) sets how often probes actually run, `FM_TOOL_UPDATE_PROBE_SECS` (default 5) bounds one probe, and `FM_TOOL_UPDATE_BUDGET_SECS` (default 20) bounds a whole sweep.
-A sweep that runs out of budget says which tool it did not reach rather than reporting the rest as current.
-The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the watcher kills prints nothing and records nothing and would then repeat that silence on every poll.
-So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
-A budget that is not a whole number from 1 to 120 is still refused outright.
-
 ## Process-to-event sources (state/procevent)
 
 A long-polling external process is registered as a *source* through its adapter, whose header and `--help` own the commands and flags.
@@ -386,7 +319,6 @@ FM_DATA_OVERRIDE=        # alternate data dir, mainly for tests
 FM_PROJECTS_OVERRIDE=    # alternate projects dir, mainly for tests
 FM_CONFIG_OVERRIDE=      # alternate config dir, mainly for tests
 FM_PROC_ROOT_OVERRIDE=   # alternate /proc root for Linux process-identity reads in fm-wake-lib.sh and fm-teardown.sh, mainly for tests
-FM_TRACE_CONTEXT=       # optional trace-context override; see "Trace context propagation"
 FM_SESSION_START_STATUS_TAIL=5   # state/*.status lines printed per task in the session-start digest; each line is capped by bin/fm-line-cap-lib.sh
 FM_SESSION_START_QUEUED_LIMIT=20   # plain queued backlog rows in the session-start digest; in-flight, held, and blocked rows are never bounded and done rows are never listed
 FM_BOOTSTRAP_DETECT_ONLY=0   # internal/read-only session-start mode: skip bootstrap's mutating sweeps and print advisory TANGLE wording
