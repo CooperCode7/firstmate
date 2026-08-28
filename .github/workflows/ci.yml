@@ -239,21 +239,16 @@ jobs:
           done < "$shell_inventory"
           [ "$parse_fail" -eq 0 ] || { echo "::error::stock macOS Bash 3.2 parse sweep failed"; exit 1; }
 
-          snapshot_output=$(/bin/bash tests/fm-fleet-snapshot-view.test.sh)
-          printf '%s\n' "$snapshot_output"
-          snapshot_count=$(printf '%s\n' "$snapshot_output" | grep -c '^ok - ')
-          [ "$snapshot_count" -eq 15 ] || {
-            echo "::error::expected 15 snapshot/fleet-view tests, got $snapshot_count"
-            exit 1
-          }
-
-          bearings_output=$(/bin/bash tests/fm-bearings-snapshot.test.sh)
-          printf '%s\n' "$bearings_output"
-          bearings_count=$(printf '%s\n' "$bearings_output" | grep -c '^ok - ')
-          [ "$bearings_count" -eq 42 ] || {
-            echo "::error::expected 42 Bearings tests, got $bearings_count"
-            exit 1
-          }
+          for suite in fm-fleet-snapshot-view fm-bearings-snapshot; do
+            expected=$(grep -c 'pass "' "tests/$suite.test.sh")
+            output=$(/bin/bash "tests/$suite.test.sh")
+            printf '%s\n' "$output"
+            actual=$(printf '%s\n' "$output" | grep -c '^ok - ')
+            [ "$actual" -eq "$expected" ] || {
+              echo "::error::$suite: stock Bash ran $actual of $expected tests"
+              exit 1
+            }
+          done
 
   invariants:
     name: Repo invariants
