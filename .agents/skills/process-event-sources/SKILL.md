@@ -55,7 +55,7 @@ Eligibility is a firstmate judgment made BEFORE arming, because the scripts cann
 Never bind an action that is destructive, irreversible, or security-sensitive, an action needing captain approval or any gate decision, or an action whose right form depends on what the condition finds - those keep the existing check-fires-then-firstmate-decides flow, for which a plain custom check or another adapter stays correct.
 When in doubt, arm only the condition half as an ordinary check and keep the action as a wake-time decision.
 
-`bin/fm-procevent.sh --help`, `bin/fm-procevent-lavish.sh --help`, `bin/fm-procevent-when.sh --help`, and `bin/fm-procevent-remote-reply.sh --help` own the exact commands and flags.
+`bin/fm-procevent.sh --help`, `bin/fm-procevent-lavish.sh --help`, and `bin/fm-procevent-when.sh --help` own the exact commands and flags.
 
 Two rules the commands cannot enforce for you:
 

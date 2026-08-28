@@ -137,7 +137,7 @@ family_for_basename() {
     fm-bootstrap.test.sh|fm-bootstrap-network-parallel.test.sh|fm-fleet-sync.test.sh|fm-gate-refuse.test.sh|fm-gotmp.test.sh|fm-session-start.test.sh|fm-sessionstart-nudge.test.sh|fm-startup-network.test.sh|fm-tangle-guard.test.sh|fm-update.test.sh)
       printf '%s\n' session-bootstrap
       ;;
-    fm-composer-matrix-live-e2e.test.sh|fm-codex-continuity-live-e2e.test.sh|fm-grok-continuity-live-e2e.test.sh|fm-cursor-primary-live-e2e.test.sh|fm-grok-stop-live-e2e.test.sh|fm-harness-liveness-drift-live-e2e.test.sh|fm-muse-signals-live-e2e.test.sh|fm-opencode-primary-live-e2e.test.sh|fm-pi-branch-live-e2e.test.sh|fm-pi-primary-live-e2e.test.sh|fm-sessionstart-hook-live-e2e.test.sh|fm-sessionstart-instruction-refresh-live-e2e.test.sh|fm-quota-array-dispatch-live-e2e.test.sh|fm-send-inbox-doorbell-live-e2e.test.sh)
+    fm-codex-continuity-live-e2e.test.sh|fm-grok-continuity-live-e2e.test.sh|fm-cursor-primary-live-e2e.test.sh|fm-grok-stop-live-e2e.test.sh|fm-harness-liveness-drift-live-e2e.test.sh|fm-muse-signals-live-e2e.test.sh|fm-opencode-primary-live-e2e.test.sh|fm-pi-branch-live-e2e.test.sh|fm-pi-primary-live-e2e.test.sh|fm-sessionstart-hook-live-e2e.test.sh|fm-sessionstart-instruction-refresh-live-e2e.test.sh|fm-quota-array-dispatch-live-e2e.test.sh|fm-send-inbox-doorbell-live-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
     fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|fm-tmux-agent-liveness.test.sh|fm-control.test.sh|fm-control-relaunch.test.sh|fm-send-resolve-key.test.sh|fm-send-strict.test.sh|fm-send-inbox.test.sh|fm-spawn-batch.test.sh|fm-spawn-dispatch-profile.test.sh|fm-spawn-worktree-settle.test.sh|fm-teardown-endpoint-safety.test.sh)
@@ -546,9 +546,6 @@ families_for_changed_path() {
       printf '%s\n' pr-forge
       ;;
     bin/fm-composer-lib.sh)
-      # The shared shape catalogue is vendor-rendered signal; a change to it
-      # re-selects the live guard (fm-composer-matrix-live-e2e) alongside the
-      # portable families.
       printf '%s\n' backend-dispatch
       printf '%s\n' pure-contract-unit
       printf '%s\n' live-harness-optin

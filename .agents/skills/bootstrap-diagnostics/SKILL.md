@@ -48,5 +48,3 @@ When any diagnostic needs captain attention, report the plain consequence and re
   Resume the emitted supervision protocol after finishing the session-start wake handling.
 - Any other `PR_CHECK_MIGRATION:` refusal means migration did not complete safely, whether because watcher exclusion, a private path, a diagnostic, quarantine validation, or marker publication could not be proved.
   Keep each affected poll unavailable, inspect the named private state path, and do not bypass the migration or execute a quarantined artifact; a completed safe-scan marker allows unrelated authenticated polls to continue while private repair remains pending.
-  Preserve that outbox and rerun `bin/fm-backlog-handoff.sh --resume-pending` after the route or endpoint problem is resolved; never re-add or dispatch the items from the main backlog.
-  An unsafe-outbox variant requires path and file-type inspection before any retry.

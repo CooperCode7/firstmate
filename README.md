@@ -65,7 +65,7 @@ Removed or unavailable in this fork:
 
 - **The X and Discord relay is deleted**, not feature-flagged. It was the one path where a
   stranger's public text became agent instruction, so no activation path was left behind.
-- **The voice relay** needs host audio.
+- **The voice relay is deleted.** It needed host audio the sealed container does not have.
 - **Heroku is unreachable** by construction, as are all production data sources.
 
 ## Quick start

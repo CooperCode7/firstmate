@@ -48,9 +48,8 @@
 #   1. dead endpoint (fm_busy_classify_live only) -> dead endpoint-gone
 #   2. standalone Kimi before verification       -> unknown kimi-unverified
 #   3. a valid, gen-matching, source-trusted record -> its state and source
-#   4. no record at all: the rendered-tail fallback decides.
-#      (generation state is sufficient for busy, not for idle), then the
-#      muse session-log and cursor transcript pull sources, then the Grok-only
+#   4. no record at all: the muse session-log and cursor transcript pull
+#      sources decide first, then the Grok-only
 #      temporary regex fallback classifies a grok task from its rendered tail,
 #      then unknown missing
 #   5. malformed, stale, or untrusted records -> unknown, never a fallback

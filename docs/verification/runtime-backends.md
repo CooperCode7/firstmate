@@ -144,15 +144,11 @@ Kimi pointer delivery and OpenCode 1.18.4 busy-queue behavior remain pinned by `
 
 ### Cleanup endpoint identity
 
-The cleanup identity boundary was validated on 2026-07-28 with tmux 3.6a and metadata fixtures for every supported backend.
+The cleanup identity boundary was validated on 2026-07-28 with tmux 3.6a and metadata fixtures for the supported backend.
 
 ```sh
 tests/fm-teardown-endpoint-safety.test.sh
 tests/fm-teardown.test.sh
-tests/fm-backend-herdr.test.sh
-tests/fm-backend-zellij.test.sh
-tests/fm-backend-orca.test.sh
-tests/fm-backend-cmux.test.sh
 ```
 
 Bounded output from the incident regression:
@@ -175,9 +171,7 @@ The shared composer classifier (`bin/fm-composer-lib.sh`, `fm_composer_classify_
 The live half of that guarantee was verified on 2026-08-10 from an already-trusted checkout at the branch's final validated head, against every installed harness then covered by the empty-composer matrix on tmux 3.6a, macOS arm64, on an isolated private socket, with no prompt submitted to any harness.
 An earlier untrusted-worktree run left Claude, Grok, and Muse unverified because the guard treats first-launch trust dialogs as an unreadable-composer state and never confirms them; this trusted-checkout rerun supersedes those missing results.
 
-```sh
-FM_COMPOSER_MATRIX_LIVE=1 tests/fm-composer-matrix-live-e2e.test.sh
-```
+The live guard that produced this record ran only on the zellij backend and was removed with it; the results below stand as the dated evidence, and the portable byte-capture regressions in `tests/fm-composer-lib.test.sh` are what now hold the classifier to them.
 
 Observed output:
 
@@ -196,7 +190,7 @@ ok - live composer-matrix guard verified 8 live surface(s)
 
 All six installed harnesses' real idle composers reached a proven `empty` (Claude auto-updated to 2.1.227 between the audit and this rerun, so the shipped classifier is proven against the newer release as well), including Pi through the tmux foreground-process identity probe, Grok through the titled-bottom-border tolerance, and OpenCode through the left-bar shape; Codex and OpenCode first parked on vendor update-available modals that the strict classifier correctly refused until the guard's single non-submitting Escape dismissed them.
 Kimi was not installed on the verification machine; its bordered shape is pinned by the portable byte-capture regressions in `tests/fm-composer-lib.test.sh`, which also carry the other five adapters' capability profiles for every harness under both a UTF-8 locale and `LC_ALL=C`.
-This guard is the refresh command after an upgrade to any matrix-covered harness; rerun it and update the versions above rather than trusting this table across releases.
+Treat the versions above as a snapshot rather than a standing guarantee across releases.
 Known staleness: on 2026-08-23 the steering-inbox doorbell run observed grok 1.0.5's idle composer classifying `unknown` (and sometimes pending-family), never `empty`, so the grok row above is stale for 1.0.5 and owes a refresh; steering is unaffected because the send path's composer check is advisory, but empty-requiring consumers (away-daemon injection, spawn readiness) should not trust the 1.0.0 grok result.
 Cursor is deliberately outside this cursor-anchored empty-composer matrix because its terminal cursor is parked outside the composer; tmux's Cursor-specific, process-identity-gated cursorless fallback is covered by the [Cursor Agent CLI](#cursor-agent-cli) section's separate live evidence and drift guard.
 

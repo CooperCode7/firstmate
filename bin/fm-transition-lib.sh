@@ -28,9 +28,8 @@
 #
 # The split is what keeps the escalation general rather than a herdr blocked
 # hack: a backend contributes only a wire->record normalizer and a stream
-# reader; the shape and the policy are shared. See bin/backends/herdr.sh
-# (fm_backend_herdr_wait_transition) for the herdr producer and bin/fm-watch.sh
-# (the watcher's event-wait splice) for the consumer.
+# reader; the shape and the policy are shared. See bin/fm-watch.sh (the
+# watcher's event-wait splice) for the consumer.
 
 # Field separator for the normalized record. A literal TAB; every field is
 # scrubbed of TAB/newline by the producer so the record is exactly five fields.

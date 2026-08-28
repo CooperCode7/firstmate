@@ -187,6 +187,7 @@ Starting from a poll armed exactly as the previous release wrote it:
 ```
 $ head -1 state/t1.pr-poll-registration
 fm-pr-poll-registration-v1
+$ fm-pr-check-migrate.sh --checks-safe
 PR_CHECK_MIGRATION: canonical polls rebuilt and armed; resume supervision for this home
 $ head -2 state/t1.pr-poll-registration
 fm-pr-poll-registration-v2

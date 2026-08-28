@@ -441,6 +441,7 @@ fi
 
 # This is the first mutating sweep at a locked session boundary. It pauses an
 if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ] && local_phase; then
+  "$SCRIPT_DIR/fm-pr-check-migrate.sh" || true
   startup_memory_budget_setup
 fi
 

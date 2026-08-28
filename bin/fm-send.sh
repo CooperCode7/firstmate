@@ -89,8 +89,7 @@
 # inspect (it can no longer reconcile or escalate on its own). Only a
 # failed enqueue discards the expectation. On the typed plane an unconfirmed submit (exit 3) keeps
 # it armed rather than dropping it, and only a proven send failure discards it.
-# for an already-open expectation so a second record is not created. Direct
-# unmarked captain input never creates one.
+# Direct unmarked captain input never creates one.
 #
 # durable record into the remote home's steering inbox and rings the remote
 # doorbell, best-effort. The remote record is the delivery, exactly as it is
@@ -527,8 +526,8 @@ else
   # text has a typed plane to lose. An explicit backend target stays typed
   # even when it happens to match local metadata: it names an endpoint, not a
   # task, the same boundary that keeps it unmarked and outside --resolve-key.
-  # and a plain crewmate steer classify identically. It deliberately does NOT
-  # command: the pre-existing marker-first wire bytes are retained in stage 1.
+  # Classification reads the pre-marker text, and the pre-existing
+  # marker-first wire bytes are retained in stage 1.
   INBOX_PLANE=0
   if [ -n "$TARGET_SELECTOR" ]; then
     if [ "$TARGET_BACKEND" = remote ]; then

@@ -928,6 +928,10 @@ case "$LAUNCH" in
   *__KIMIBIN__*)
     KIMI_BIN=$(resolve_kimi_binary) || exit 1
     LAUNCH=${LAUNCH//__KIMIBIN__/$(shell_quote "$KIMI_BIN")}
+    "$FM_ROOT/bin/fm-kimi-turnend-hook.sh" install || {
+      echo "error: refusing Kimi spawn because the global turn-end hook could not be installed safely" >&2
+      exit 1
+    }
     ;;
 esac
 

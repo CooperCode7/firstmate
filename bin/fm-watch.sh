@@ -833,6 +833,11 @@ if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   return 0
 fi
 
+"$SCRIPT_DIR/fm-pr-check-migrate.sh" --checks-safe || {
+  echo "watcher: PR check migration blocked; refusing to execute state checks" >&2
+  exit 1
+}
+
 if ! fm_lock_try_acquire "$WATCH_LOCK"; then
   BEAT="$STATE/.last-watcher-beat"
   if [ -n "${FM_LOCK_HELD_PID:-}" ]; then
