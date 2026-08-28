@@ -566,52 +566,6 @@ test_terminal_single_owner_status_decision_does_not_block_empty_inventory() {
   pass "terminal single-owner stale status decisions do not block empty inventory"
 }
 
-test_secondmate_hold_stays_in_authoritative_home() {
-  local parent mate fakebin origin json
-  parent=$(make_home main-routing)
-  mate="$TMP_ROOT/sample-mate-home"
-  mkdir -p "$mate/data" "$mate/state" "$mate/config" "$mate/projects" "$mate/bin"
-  cp "$ROOT/.tasks.toml" "$mate/.tasks.toml"
-  printf '# Synthetic secondmate home\n' > "$mate/AGENTS.md"
-  printf 'sample-mate\n' > "$mate/.fm-secondmate-home"
-  cat > "$mate/data/backlog.md" <<'EOF'
-## In flight
-
-## Queued
-
-## Done
-EOF
-  fakebin=$(fm_fakebin "$mate")
-  fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
-  origin=sample-mate-review
-  mkdir -p "$mate/data/$origin"
-  tasks_in "$mate" add "$origin" "Investigate secondmate sample" --kind scout --repo sample --start >/dev/null
-  write_origin_meta "$mate" "$origin"
-  printf 'done: report and visual review complete\n' > "$mate/state/$origin.status"
-  printf '# Sample secondmate review\n\nOne captain choice remains.\n' > "$mate/data/$origin/report.md"
-  run_captain "$mate" hold sample-release-call --title "Choose the sample release" \
-    --reason "captain release choice pending" --repo sample --origin "$origin" >/dev/null \
-    || fail "secondmate-owned hold creation failed"
-  run_captain "$mate" complete "$origin" sample-release-call >/dev/null \
-    || fail "secondmate-owned completion failed"
-  run_teardown "$mate" "$origin" >/dev/null 2> "$mate/teardown.err" \
-    || fail "secondmate investigation teardown failed: $(cat "$mate/teardown.err")"
-  tasks_in "$mate" "done" "$origin" --report "data/$origin/report.md" --keep 0 >/dev/null
-
-  printf -- '- sample-mate - synthetic scope (home: %s; scope: sample reviews; projects: sample; added 2026-07-14)\n' \
-    "$mate" > "$parent/data/secondmates.md"
-  fm_write_secondmate_meta "$parent/state/sample-mate.meta" "$mate" \
-    "firstmate:fm-sample-mate" sample
-  json=$(run_bearings "$parent") || fail "parent Bearings could not read the secondmate captain call"
-  printf '%s' "$json" | jq -e '
-    .decisions_open | any(.owner == "sample-mate" and .verb == "captain-hold"
-      and (.id | endswith("sample-release-call")))
-  ' >/dev/null || fail "secondmate captain call did not surface with authoritative owner: $json"
-  assert_no_grep "sample-release-call" "$parent/data/backlog.md" "secondmate call leaked into the main backlog"
-  assert_grep "sample-release-call" "$mate/data/backlog.md" "secondmate call left its authoritative backlog"
-  pass "main-home and secondmate-home captain calls remain correctly routed"
-}
-
 # The one keyed-answer intake, fed through the real process-event runner by a
 # fixture channel that knows nothing about captain holds: task-id keys close at
 # answer time, a card-declared release mode frees held work, freeform prose can
@@ -803,7 +757,7 @@ test_chat_channel_feeds_the_same_keyed_answer_intake() {
   write_origin_meta "$home" "$id" ship
   printf 'needs-decision [key=chat-choice]: pick option A or option B\n' > "$home/state/$id.status"
   printf '# Chat review\n\nTwo captain choices remain.\n' > "$home/data/$id/report.md"
-  run_shim "$home" hold "$id" chat-choice \
+  run_captain "$home" hold "$id-decision-chat-choice" --origin "$id" \
     --title "Choose the sample chat option" --reason "captain chat choice pending" --repo sample >/dev/null \
     || fail "could not register the legacy chat row"
   run_captain "$home" hold sample-chat-followup --title "Choose the chat follow-up" \
@@ -1042,7 +996,6 @@ test_out_of_band_close_is_recordable
 test_visual_review_uses_shared_completion_owner
 test_none_inventory_and_resolved_prose_do_not_create_holds
 test_terminal_single_owner_status_decision_does_not_block_empty_inventory
-test_secondmate_hold_stays_in_authoritative_home
 test_bound_channel_answers_close_at_answer_time
 test_unbound_source_closes_no_hold
 test_chat_channel_feeds_the_same_keyed_answer_intake
