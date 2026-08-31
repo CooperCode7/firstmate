@@ -180,6 +180,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/captain-etiquette.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": "docs/configuration.md",
       "audience": "operator-current"
     },
