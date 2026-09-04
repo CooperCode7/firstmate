@@ -56,7 +56,6 @@ fork puts the fleet in a container instead.
 | Install | clone the repo, launch a harness on the host | `docker compose build && up -d`, then attach |
 | The clone you are reading | the working firstmate home | build context only. None of the toolchain is installed on the host |
 | Harness | 7 verified, Claude/Grok/Pi co-primary | Claude Code only. It is the only one in the image |
-| Session backend | tmux, herdr, zellij, Orca, cmux | tmux only |
 | Projects | cloned under `projects/` on your machine | cloned inside the container, never mounted from the host |
 | GitHub identity | your `gh auth login` | the container's own scoped token |
 | Network | your machine's network | 12 allowlisted domains, everything else refused |
@@ -66,9 +65,7 @@ Removed or unavailable in this fork:
 
 - **The X and Discord relay is deleted**, not feature-flagged. It was the one path where a
   stranger's public text became agent instruction, so no activation path was left behind.
-- **Remote secondmates** need SSH to another host, which the sealed network has no route
-  for. Local secondmates work.
-- **The voice relay** needs host audio.
+- **The voice relay is deleted.** It needed host audio the sealed container does not have.
 - **Heroku is unreachable** by construction, as are all production data sources.
 
 ## Quick start
@@ -239,8 +236,8 @@ on the `fmhome` volume. `down` without `-v` is safe.
 | `/afk` | Enter away-mode supervision: routine notifications are handled in bash, captain-relevant events are escalated as batched digests, and a stuck delivery raises an active alert |
 | `/ahoy` | Recap session events since your last message plus any unanswered decisions, then walk you through the open ones in impact order |
 | `/bearings` | A concise four-section digest of fleet state. `/bearings file` also writes a dated report, and `include PRs` adds live PR enrichment |
-| `/updatefirstmate` | Fast-forward this firstmate and its secondmates to the latest from origin, then re-read instructions |
 | `/stow` | Sweep the session for durable knowledge, persist open work records, curate tiered startup memory, and report what is safe to reset |
+| `/updatefirstmate` | Fast-forward this firstmate to the latest from origin, then re-read instructions |
 
 Agent-only reference skills live under `.agents/skills/` and are loaded at the trigger points
 named in [`AGENTS.md`](AGENTS.md). Skills under `skills/` are public and installer-facing,
@@ -265,11 +262,6 @@ Start here:
   serves, and the machine-checked placement boundary that keeps it honest.
 
 Inherited from upstream and **not applicable to this fork**, linked so a cherry-pick has
-somewhere to land: the [herdr](docs/herdr-backend.md), [zellij](docs/zellij-backend.md),
-[Orca](docs/orca-backend.md), and [cmux](docs/cmux-backend.md) backend guides, since this fork
-runs tmux only; [remote secondmates](docs/remote-secondmates.md), which need an SSH route the
-sealed network does not have; and [Codex App](docs/codex-app-backend.md),
-[Pi calm mode](docs/calm.md), the [voice relay](docs/voice-relay.md), and
 [GitLab merge watching](docs/gitlab-merge-watch.md).
 
 ## Relationship to upstream

@@ -75,10 +75,7 @@
 #   - An unverified harness, or a harness whose control mechanics are unknown,
 #     is refused rather than guessed at.
 #   - A backend that cannot deliver the harness's interrupt key is refused
-#     (Orca's terminal API has no Escape).
 #   - `exit` and `relaunch` require a backend with a recovery-grade agent-state
-#     classifier (tmux, herdr), because without one the "the agent stopped"
-#     postcondition cannot be proven. zellij, orca, and cmux are refused rather
 #     than reported as successful blind.
 #   - An ambiguous or unreadable endpoint state refuses; only a positively
 #     classified state acts.
@@ -622,7 +619,7 @@ resolve_relaunch_profile() {
   CONFIG_EFFORT=
   if [ "$KIND" = secondmate ]; then
     # A secondmate's harness, model, and effort are a durable configured pin
-    # that every respawn re-resolves (the secondmate-provisioning contract), so
+    # that every respawn re-resolves, so
     # a relaunch with no explicit harness picks up a newly configured one
     # instead of freezing whatever this incarnation happens to run. Crewmates
     # and scouts deliberately do NOT resolve config here: their harness comes

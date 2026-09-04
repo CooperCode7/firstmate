@@ -28,7 +28,7 @@
 #      literal-path match only fires for the default NM_HOME (~/.no-mistakes); a
 #      relocated NM_HOME is covered by signal 1.
 #
-# A NORMAL firstmate session - a real primary checkout, a real treehouse/Orca
+# A NORMAL firstmate session - a real primary checkout, a real treehouse
 # crew worktree - has NEITHER signal and is COMPLETELY unaffected: the function
 # returns 0 and the lifecycle proceeds exactly as before.
 #
@@ -58,6 +58,9 @@
 # No side effects on source. set -u / set -e safe. The refusal is a hard exit,
 # not a return, because there is no safe way to continue a fleet mutation from a
 # gate context.
+
+# The exit code every refusal uses, distinct enough to recognize in a caller or
+# test as "the gate refusal fired" rather than an ordinary usage error.
 
 # The exit code every refusal uses, distinct enough to recognize in a caller or
 # test as "the gate refusal fired" rather than an ordinary usage error.

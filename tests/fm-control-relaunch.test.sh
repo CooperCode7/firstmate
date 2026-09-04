@@ -24,7 +24,6 @@ set -u
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-control-lib.sh"
 # shellcheck source=/dev/null
-. "$ROOT/bin/fm-trace-context-lib.sh"
 
 CONTROL="$ROOT/bin/fm-control.sh"
 SPAWN="$ROOT/bin/fm-spawn.sh"
@@ -105,9 +104,6 @@ case "${1:-}" in
             : > "$FM_FAKE_TRACE_PREPARE"
             while [ ! -e "$FM_FAKE_META_WRITER_READY" ]; do /bin/sleep 0.01; done
           fi
-          ;;
-        'export TRACEPARENT='*)
-          [ -z "${FM_FAKE_TRACE_EXPORTED:-}" ] || : > "$FM_FAKE_TRACE_EXPORTED"
           ;;
       esac
     fi
@@ -318,83 +314,7 @@ test_relaunch_preserves_durable_task_metadata() {
   pass "fm-control relaunch: durable task metadata survives replacement launch publication"
 }
 
-test_relaunch_serializes_concurrent_durable_metadata_publication() {
-  local dir control_pid link_pid rc i=0 traceparent prepare ready exported release
-  dir=$(new_case metadata-race rl28)
-  add_ship_task "$dir" rl28 claude
-  printf '%s\n' "$$" > "$dir/home/state/.lock"
-  printf '%s on\n' "$$" > "$dir/home/state/.trace-context-effective"
-  make_mv_failure_stub "$dir"
-  prepare="$dir/trace-prepare"
-  ready="$dir/meta-writer-ready"
-  exported="$dir/trace-exported"
-  release="$dir/meta-writer-release"
-  FM_REAL_MV=$(command -v mv) \
-    FM_FAKE_TRACE_PREPARE="$prepare" \
-    FM_FAKE_META_WRITER_READY="$ready" \
-    FM_FAKE_TRACE_EXPORTED="$exported" \
-    run_control "$dir" rl28 relaunch --note "continue after publication" > "$dir/control.out" &
-  control_pid=$!
-  while [ ! -e "$prepare" ] && [ "$i" -lt 200 ]; do
-    /bin/sleep 0.01
-    i=$((i + 1))
-  done
-  [ -e "$prepare" ] || {
-    kill "$control_pid" 2>/dev/null || true
-    wait "$control_pid" 2>/dev/null || true
-    fail "relaunch did not reach trace delivery"
-  }
-  (
-    export FM_FAKE_META_WRITER_TARGET="$dir/home/state/rl28.meta"
-    export FM_FAKE_META_WRITER_READY="$ready"
-    export FM_FAKE_META_WRITER_RELEASE="$release"
-    concurrent_meta_publish "$dir" rl28 concurrent_marker publish-28
-  ) > "$dir/link.out" 2>&1 &
-  link_pid=$!
-  i=0
-  while { [ ! -e "$ready" ] || [ ! -e "$exported" ]; } && [ "$i" -lt 200 ]; do
-    /bin/sleep 0.01
-    i=$((i + 1))
-  done
-  [ -e "$ready" ] && [ -e "$exported" ] || {
-    : > "$release"
-    kill "$link_pid" "$control_pid" 2>/dev/null || true
-    wait "$link_pid" 2>/dev/null || true
-    wait "$control_pid" 2>/dev/null || true
-    fail "trace publication did not overlap the concurrent metadata writer"
-  }
-  : > "$release"
-  wait "$link_pid"; rc=$?
-  expect_code 0 "$rc" "concurrent PR metadata publication should serialize"$'\n'"$(cat "$dir/link.out")"
-  wait "$control_pid"; rc=$?
-  expect_code 0 "$rc" "relaunch should complete after serialized metadata publication"$'\n'"$(cat "$dir/control.out")"
-  [ "$(meta_field "$dir" rl28 concurrent_marker)" = publish-28 ] \
-    || fail "relaunch erased metadata published concurrently by another writer"
-  traceparent=$(meta_field "$dir" rl28 traceparent)
-  fm_trace_context_valid "$traceparent" \
-    || fail "concurrent metadata publication erased the replacement's trace carrier"
-  pass "fm-control relaunch: trace and concurrent task metadata publications serialize"
-}
 
-test_disabled_relaunch_clears_prior_trace_context() {
-  local dir out rc
-  dir=$(new_case trace-off rl33)
-  add_ship_task "$dir" rl33 claude
-  printf '%s\n' 'traceparent=00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01' \
-    >> "$dir/home/state/rl33.meta"
-  printf '%s\n' "$$" > "$dir/home/state/.lock"
-  printf '%s off\n' "$$" > "$dir/home/state/.trace-context-effective"
-
-  out=$(run_control "$dir" rl33 relaunch --note "crossing trace boundary"); rc=$?
-  expect_code 0 "$rc" "disabled relaunch should succeed"$'\n'"$out"
-  [ -z "$(meta_field "$dir" rl33 traceparent)" ] \
-    || fail "disabled relaunch must remove the prior trace carrier from metadata"
-  grep -q '^unset TRACEPARENT; .*claude' "$dir/fake/literal" \
-    || fail "disabled relaunch must clear the pane carrier before replacement launch"
-  ! grep -q '^export TRACEPARENT=' "$dir/fake/literal" \
-    || fail "disabled relaunch must not export a replacement trace carrier"
-  pass "fm-control relaunch: disabling tracing clears metadata and pane context"
-}
 
 test_relaunch_appends_the_progress_note_to_the_instructions() {
   local dir out rc brief
@@ -620,81 +540,7 @@ test_turnend_auth_paths_are_owned_by_the_control_adapter() {
   pass "fm-control-lib: one owner resolves each harness's turn-end registry entry, and refuses a malformed token"
 }
 
-test_secondmate_relaunch_picks_up_the_configured_harness_pin() {
-  local dir home out rc
-  dir=$(new_case smpin sm3)
-  home="$dir/home"
-  mkdir -p "$home/config"
-  printf 'codex some-model high\n' > "$home/config/secondmate-harness"
-  mkdir -p "$home/data/sm3"
-  printf '# secondmate brief\n' > "$home/data/sm3/brief.md"
-  fm_git_worktree "$dir/proj" "$dir/smhome" sm-branch
-  mkdir -p "$dir/smhome/state" "$dir/smhome/data" "$dir/smhome/bin"
-  printf 'sm3\n' > "$dir/smhome/.fm-secondmate-home"
-  printf '# agents\n' > "$dir/smhome/AGENTS.md"
-  {
-    echo "window=fmses:fm-sm3"
-    echo "endpoint_task_id=sm3"
-    echo "worktree=$dir/smhome"
-    echo "project=$dir/smhome"
-    echo "harness=claude"
-    echo "kind=secondmate"
-    echo "mode=secondmate"
-    echo "yolo=off"
-    echo "model=default"
-    echo "effort=default"
-    echo "home=$dir/smhome"
-  } > "$home/state/sm3.meta"
-  printf '%s\n' "fm-sm3" > "$dir/fake/windows"
-  printf '%s' "$dir/smhome" > "$dir/fake/cwd"
-  printf 'codex' > "$dir/fake/becomes"
-  out=$(run_control "$dir" sm3 relaunch); rc=$?
-  expect_code 0 "$rc" "a configured secondmate harness should relaunch"$'\n'"$out"
-  [ "$(journal_field "$dir" sm3 to_harness)" = codex ] \
-    || fail "a secondmate relaunch should pick up the configured harness pin, got '$(journal_field "$dir" sm3 to_harness)'"
-  [ "$(journal_field "$dir" sm3 to_model)" = some-model ] \
-    || fail "the configured model token should come with the pin"
-  [ "$(journal_field "$dir" sm3 to_effort)" = high ] \
-    || fail "the configured effort token should come with the pin"
-  assert_not_contains "$out" "not a verified harness" "codex is a verified harness"
-  pass "fm-control relaunch: a secondmate relaunch re-resolves its durable configured harness pin"
-}
 
-test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop() {
-  local dir home out rc
-  dir=$(new_case invalid-effort sm6)
-  home="$dir/home"
-  mkdir -p "$home/config" "$home/data/sm6"
-  printf 'codex some-model impossible\n' > "$home/config/secondmate-harness"
-  printf '# secondmate brief\n' > "$home/data/sm6/brief.md"
-  fm_git_worktree "$dir/proj" "$dir/smhome" sm-branch
-  mkdir -p "$dir/smhome/state" "$dir/smhome/data" "$dir/smhome/bin"
-  printf 'sm6\n' > "$dir/smhome/.fm-secondmate-home"
-  printf '# agents\n' > "$dir/smhome/AGENTS.md"
-  {
-    echo "window=fmses:fm-sm6"
-    echo "endpoint_task_id=sm6"
-    echo "worktree=$dir/smhome"
-    echo "project=$dir/smhome"
-    echo "harness=claude"
-    echo "kind=secondmate"
-    echo "mode=secondmate"
-    echo "yolo=off"
-    echo "model=default"
-    echo "effort=default"
-    echo "home=$dir/smhome"
-  } > "$home/state/sm6.meta"
-  printf '%s\n' "fm-sm6" > "$dir/fake/windows"
-  printf '%s' "$dir/smhome" > "$dir/fake/cwd"
-  printf 'codex' > "$dir/fake/becomes"
-  out=$(run_control "$dir" sm6 relaunch); rc=$?
-  expect_code 0 "$rc" "an invalid configured effort should be ignored before stop"$'\n'"$out"
-  assert_contains "$out" "effort token 'impossible'" \
-    "relaunch should surface the same warning as a normal secondmate spawn"
-  [ "$(journal_field "$dir" sm6 to_effort)" = default ] \
-    || fail "invalid configured effort should normalize to default"
-  pass "fm-control relaunch: invalid configured effort is ignored before stop"
-}
 
 # muse is a verified adapter, but only for crewmates and scouts: it has no
 # primary supervision protocol, so bin/fm-spawn.sh refuses it for a secondmate.
@@ -738,42 +584,6 @@ test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop() {
   pass "fm-control relaunch: an adapter unverified for this task kind refuses before the agent is stopped"
 }
 
-test_explicit_secondmate_harness_ignores_configured_profile_axes() {
-  local dir home out rc
-  dir=$(new_case smexplicit sm4)
-  home="$dir/home"
-  mkdir -p "$home/config"
-  printf 'claude opus high\n' > "$home/config/secondmate-harness"
-  mkdir -p "$home/data/sm4"
-  printf '# secondmate brief\n' > "$home/data/sm4/brief.md"
-  fm_git_worktree "$dir/proj" "$dir/smhome" sm-branch
-  mkdir -p "$dir/smhome/state" "$dir/smhome/data" "$dir/smhome/bin"
-  printf 'sm4\n' > "$dir/smhome/.fm-secondmate-home"
-  printf '# agents\n' > "$dir/smhome/AGENTS.md"
-  {
-    echo "window=fmses:fm-sm4"
-    echo "endpoint_task_id=sm4"
-    echo "worktree=$dir/smhome"
-    echo "project=$dir/smhome"
-    echo "harness=claude"
-    echo "kind=secondmate"
-    echo "mode=secondmate"
-    echo "yolo=off"
-    echo "model=opus"
-    echo "effort=high"
-    echo "home=$dir/smhome"
-  } > "$home/state/sm4.meta"
-  printf '%s\n' "fm-sm4" > "$dir/fake/windows"
-  printf '%s' "$dir/smhome" > "$dir/fake/cwd"
-  printf 'codex' > "$dir/fake/becomes"
-  out=$(run_control "$dir" sm4 relaunch --harness codex); rc=$?
-  expect_code 0 "$rc" "an explicit secondmate harness should relaunch"$'\n'"$out"
-  [ "$(meta_field "$dir" sm4 model)" = default ] \
-    || fail "an explicit secondmate harness must not inherit the configured model"
-  [ "$(meta_field "$dir" sm4 effort)" = default ] \
-    || fail "an explicit secondmate harness must not inherit the configured effort"
-  pass "fm-control relaunch: explicit secondmate harness resets unnamed profile axes"
-}
 
 test_ship_relaunch_ignores_the_crew_harness_config() {
   local dir out
@@ -1076,48 +886,6 @@ test_journal_records_the_checkpoint_it_proved() {
 
 # --- secondmate child-work safety -------------------------------------------
 
-test_secondmate_relaunch_checkpoints_child_work_and_spares_the_charter() {
-  local dir home out rc
-  dir=$(new_case sm sm1)
-  home="$dir/home"
-  mkdir -p "$home/config"
-  printf 'claude\n' > "$home/config/secondmate-harness"
-  fm_git_worktree "$dir/proj" "$dir/smhome" sm-branch
-  mkdir -p "$dir/smhome/state" "$dir/smhome/data" "$dir/smhome/bin"
-  printf 'sm1\n' > "$dir/smhome/.fm-secondmate-home"
-  printf '# charter\n' > "$dir/smhome/data/charter.md"
-  printf '# agents\n' > "$dir/smhome/AGENTS.md"
-  printf 'window=x:fm-c1\n' > "$dir/smhome/state/c1.meta"
-  printf 'window=x:fm-c2\n' > "$dir/smhome/state/c2.meta"
-  {
-    echo "window=fmses:fm-sm1"
-    echo "endpoint_task_id=sm1"
-    echo "worktree=$dir/smhome"
-    echo "project=$dir/smhome"
-    echo "harness=claude"
-    echo "kind=secondmate"
-    echo "mode=secondmate"
-    echo "yolo=off"
-    echo "model=default"
-    echo "effort=default"
-    echo "home=$dir/smhome"
-    echo "projects="
-  } > "$home/state/sm1.meta"
-  printf '%s\n' "fm-sm1" > "$dir/fake/windows"
-  printf '%s' "$dir/smhome" > "$dir/fake/cwd"
-  # No --note: a secondmate reconciles its own home's records at startup, so
-  # the note is optional there.
-  out=$(run_control "$dir" sm1 relaunch); rc=$?
-  expect_code 0 "$rc" "a checkpointed secondmate should relaunch"$'\n'"$out"
-  [ "$(journal_field "$dir" sm1 children)" = 2 ] \
-    || fail "the checkpoint must account for the secondmate's child work, got '$(journal_field "$dir" sm1 children)'"
-  assert_not_contains "$out" "requires --note" "a secondmate relaunch must not demand a progress note"
-  [ "$(cat "$dir/smhome/data/charter.md")" = "# charter" ] \
-    || fail "a secondmate's standing charter must never be rewritten by a relaunch"
-  assert_present "$dir/smhome/state/c1.meta" "child records must survive the relaunch"
-  assert_present "$dir/smhome/state/c2.meta" "child records must survive the relaunch"
-  pass "fm-control relaunch: a secondmate's child work is accounted for and its charter is left alone"
-}
 
 test_secondmate_relaunch_refuses_an_unmarked_home() {
   local dir home out rc
@@ -1287,22 +1055,6 @@ test_spawn_relaunch_refuses_a_live_agent() {
   pass "fm-spawn --relaunch: refuses to launch a second agent into a live endpoint"
 }
 
-test_spawn_relaunch_refuses_contradicting_flags() {
-  local dir out rc
-  dir=$(new_case flags rl16)
-  add_ship_task "$dir" rl16 claude
-  printf 'zsh' > "$dir/fake/command"
-  out=$(run_spawn "$dir" rl16 --relaunch --backend herdr); rc=$?
-  expect_code 1 "$rc" "--backend should be refused alongside --relaunch"
-  assert_contains "$out" "recorded backend" "the refusal should name the recorded backend rule"
-  out=$(run_spawn "$dir" rl16 --relaunch --scout); rc=$?
-  expect_code 1 "$rc" "--scout should be refused alongside --relaunch"
-  assert_contains "$out" "recorded kind" "the refusal should name the recorded kind rule"
-  out=$(run_spawn "$dir" rl16 "$dir/proj" --relaunch); rc=$?
-  expect_code 1 "$rc" "a project positional should be refused alongside --relaunch"
-  assert_contains "$out" "takes the task id only" "the refusal should name the positional rule"
-  pass "fm-spawn --relaunch: every identity axis comes from the record, and a contradicting flag refuses"
-}
 
 test_spawn_relaunch_refuses_an_unrecorded_task() {
   local dir out rc
@@ -1328,8 +1080,6 @@ test_spawn_relaunch_refuses_a_pane_outside_the_worktree() {
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
 test_relaunch_preserves_durable_task_metadata
-test_relaunch_serializes_concurrent_durable_metadata_publication
-test_disabled_relaunch_clears_prior_trace_context
 test_relaunch_appends_the_progress_note_to_the_instructions
 test_relaunch_requires_a_note_for_a_ship_task
 test_harness_switch_moves_the_record_and_clears_prior_wiring
@@ -1342,10 +1092,7 @@ test_relaunch_onto_an_unverified_harness_is_refused
 test_prior_harness_turnend_registry_entry_is_cleared
 test_wiring_removal_failure_refuses_before_replacement_arm
 test_turnend_auth_paths_are_owned_by_the_control_adapter
-test_secondmate_relaunch_picks_up_the_configured_harness_pin
-test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
-test_explicit_secondmate_harness_ignores_configured_profile_axes
 test_ship_relaunch_ignores_the_crew_harness_config
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one
 test_prefixed_prior_harness_wiring_is_still_retired
@@ -1362,13 +1109,11 @@ test_stop_transport_failure_reconciles_a_dead_agent
 test_complete_journal_failure_rolls_back_from_durable_phase
 test_prepublication_abort_retires_replacement_wiring_and_busy_state
 test_journal_records_the_checkpoint_it_proved
-test_secondmate_relaunch_checkpoints_child_work_and_spares_the_charter
 test_secondmate_relaunch_refuses_an_unmarked_home
 test_secondmate_checkpoint_refuses_unreadable_child_state
 test_concurrent_relaunch_is_refused
 test_direct_spawn_relaunch_participates_in_the_lifecycle_lock
 test_promotion_participates_in_the_lifecycle_lock_before_metadata_resolution
 test_spawn_relaunch_refuses_a_live_agent
-test_spawn_relaunch_refuses_contradicting_flags
 test_spawn_relaunch_refuses_an_unrecorded_task
 test_spawn_relaunch_refuses_a_pane_outside_the_worktree

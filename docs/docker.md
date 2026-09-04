@@ -136,5 +136,4 @@ everything else.
 
 ## Limits
 
-The container runs the tmux backend; the cmux and orca backends are macOS-only and unavailable.
 Pinned tool versions age: the axi family tracks its latest published release, so a long-lived image eventually reports a version floor at session start and needs a rebuild.

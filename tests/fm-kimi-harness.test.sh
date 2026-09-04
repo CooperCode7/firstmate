@@ -631,7 +631,6 @@ test_watcher_never_classifies_kimi_from_its_spinner() (
   # shellcheck source=/dev/null
   . "$ROOT/bin/fm-watch.sh"
   # shellcheck disable=SC2329 # Runtime override called by the sourced watcher.
-  fm_backend_busy_state() { printf 'unknown'; }
   # Standalone Kimi has no verified semantic busy source, so it classifies
   # unknown - and unknown is never working. Its moon-phase spinner is
   # deliberately not a state source: the approved redesign forbids inventing a

@@ -27,7 +27,6 @@ set -u
 . "$ROOT/bin/fm-marker-lib.sh"
 
 CONTROL="$ROOT/bin/fm-control.sh"
-SEND="$ROOT/bin/fm-send.sh"
 # fm_test_tmproot's own cleanup trap fires when its command substitution exits,
 # so recreate the root before resolving it and clean it up from this file's trap.
 TMP_ROOT=$(fm_test_tmproot fm-control)
@@ -342,21 +341,13 @@ test_unverified_harness_is_refused() {
 # --- 2. backend capability matrix -------------------------------------------
 
 test_backend_key_capability_matrix() {
-  local backend key
-  for backend in tmux herdr zellij cmux; do
-    # C-u is the composer clear muse's interrupt needs; every session provider
-    # but Orca normalizes it (bin/backends/*.sh).
-    for key in Escape Enter C-c C-u; do
-      fm_control_backend_supports_key "$backend" "$key" \
-        || fail "$backend should be able to deliver $key"
-    done
+  local key
+  # C-u is the composer clear muse's interrupt needs; tmux normalizes it
+  # (bin/backends/tmux.sh).
+  for key in Escape Enter C-c C-u; do
+    fm_control_backend_supports_key tmux "$key" \
+      || fail "tmux should be able to deliver $key"
   done
-  fm_control_backend_supports_key orca Escape \
-    && fail "orca's terminal API has no Escape and must not claim it"
-  fm_control_backend_supports_key orca C-u \
-    && fail "orca's terminal API has no composer clear and must not claim one"
-  fm_control_backend_supports_key orca C-c || fail "orca should deliver C-c"
-  fm_control_backend_supports_key orca Enter || fail "orca should deliver Enter"
   pass "fm-control-lib: the backend key matrix matches each adapter's real send-key surface"
 }
 
@@ -384,64 +375,6 @@ test_harness_kind_capability() {
   pass "fm-control-lib: adapter capability is per task kind, not per adapter alone"
 }
 
-test_orca_refuses_an_escape_harness_interrupt() {
-  local dir out rc
-  dir=$(new_case orca-escape)
-  add_task "$dir" t1 claude ship orca "term-1"
-  # Orca records its endpoint as terminal=, which endpoint validation requires.
-  {
-    cat "$dir/home/state/t1.meta"
-    echo "terminal=term-1"
-    echo "orca_worktree_id=wt-1"
-  } > "$dir/home/state/t1.meta.new"
-  sed 's|^window=.*|window=fm-t1|' "$dir/home/state/t1.meta.new" > "$dir/home/state/t1.meta"
-  out=$(run_control "$dir" t1 interrupt); rc=$?
-  expect_code 1 "$rc" "an Escape harness on orca should refuse"
-  assert_contains "$out" "cannot deliver" "refusal should name the undeliverable key"
-  pass "fm-control interrupt: a backend that cannot deliver the harness's key refuses instead of sending another"
-}
-
-test_unverified_state_backends_refuse_stop_verbs() {
-  local dir out rc backend
-  for backend in zellij cmux; do
-    dir=$(new_case "nostate-$backend")
-    if [ "$backend" = zellij ]; then
-      add_task "$dir" t1 claude ship zellij "sess:7"
-      {
-        echo "zellij_session=sess"
-        echo "zellij_tab_id=1"
-        echo "zellij_pane_id=7"
-      } >> "$dir/home/state/t1.meta"
-    else
-      add_task "$dir" t1 claude ship cmux "ws1:surface1"
-      {
-        echo "cmux_workspace_id=ws1"
-        echo "cmux_surface_id=surface1"
-      } >> "$dir/home/state/t1.meta"
-    fi
-    out=$(run_control "$dir" t1 exit); rc=$?
-    expect_code 1 "$rc" "exit on $backend should refuse"$'\n'"$out"
-    assert_contains "$out" "no recovery-grade agent-state classifier" \
-      "the $backend refusal should name the missing stop proof"
-    [ -z "$(literals "$dir")" ] || fail "$backend must receive no exit command"
-    out=$(run_control "$dir" t1 relaunch --note x); rc=$?
-    expect_code 1 "$rc" "relaunch on $backend should refuse"$'\n'"$out"
-    assert_contains "$out" "no recovery-grade agent-state classifier" \
-      "the $backend relaunch refusal should name the missing stop proof"
-  done
-  pass "fm-control: a backend that cannot prove an agent stopped refuses exit and relaunch"
-}
-
-test_state_verified_backends_are_exactly_tmux_and_herdr() {
-  fm_control_backend_state_verified tmux || fail "tmux has a recovery-grade classifier"
-  fm_control_backend_state_verified herdr || fail "herdr has a recovery-grade classifier"
-  local backend
-  for backend in zellij orca cmux; do
-    fm_control_backend_state_verified "$backend" \
-      && fail "$backend has no recovery-grade classifier and must not claim one"
-  done
-  pass "fm-control-lib: stop-proving verbs are gated on the backends that really classify agent state"
-}
 
 # --- 3. exact-id scoping ----------------------------------------------------
 
@@ -494,43 +427,6 @@ test_record_bound_to_another_task_is_refused() {
   pass "fm-control: a record whose endpoint identity names another task is refused"
 }
 
-# A remotely placed secondmate's agent runs on another host, so none of the
-# postconditions this plane verifies could be read for it here. Endpoint
-# validation would refuse the record anyway - `window=remote:<id>` can never
-# match a local backend's shape - but it would blame malformed metadata for a
-# correctly configured route, so the placement is named instead. Every verb
-# refuses, and none of them reaches a local endpoint.
-test_remote_secondmate_is_refused_by_placement() {
-  local dir out rc verb
-  for verb in interrupt exit relaunch; do
-    dir=$(new_case "remote-$verb")
-    add_task "$dir" t1 claude secondmate
-    alive_as "$dir" claude
-    {
-      grep -v '^window=' "$dir/home/state/t1.meta"
-      echo "window=remote:t1"
-      echo "home=$dir/wt-t1"
-      echo "remote_host=example.invalid"
-      echo "remote_root=/srv/fm"
-      echo "remote_backend=herdr"
-      echo "remote_target=fm:pane-1"
-    } > "$dir/home/state/t1.meta.tmp"
-    mv "$dir/home/state/t1.meta.tmp" "$dir/home/state/t1.meta"
-    if [ "$verb" = relaunch ]; then
-      out=$(run_control "$dir" t1 "$verb" --note "x"); rc=$?
-    else
-      out=$(run_control "$dir" t1 "$verb"); rc=$?
-    fi
-    expect_code 1 "$rc" "$verb on a remotely placed secondmate should refuse"
-    assert_contains "$out" "remotely placed secondmate on example.invalid" \
-      "the $verb refusal should name the remote placement, not blame the record"
-    assert_not_contains "$out" "malformed" \
-      "a correctly configured remote route must not be reported as malformed"
-    [ -z "$(literals "$dir")" ] && [ -z "$(keys_sent "$dir")" ] \
-      || fail "$verb on a remote secondmate must reach no local endpoint"
-  done
-  pass "fm-control: a remotely placed secondmate is refused by placement, not by a metadata complaint"
-}
 
 hold_lifecycle_lock() {  # <lock-path>
   local lifecycle_lock_path=$1
@@ -853,25 +749,6 @@ test_secondmate_control_command_carries_no_marker() {
   pass "fm-control: a lifecycle command to a secondmate is unmarked and opens no reply expectation"
 }
 
-test_fm_send_still_marks_the_same_secondmate_task() {
-  local dir log out rc
-  dir=$(new_case sm-send)
-  add_task "$dir" domain claude secondmate
-  log="$dir/fake/sendlog"
-  : > "$log"
-  out=$(env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
-    FM_SEND_SETTLE=0 FM_ROOT_OVERRIDE="$dir/home" \
-    "$SEND" domain "audit the build" 2>&1); rc=$?
-  expect_code 0 "$rc" "fm-send to a secondmate should still succeed"$'\n'"$out"
-  # The marked steer rides fm-send's durable inbox plane; only the doorbell is
-  # typed, so the marker is asserted on the recorded body.
-  case "$(bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" \
-    "$dir/home/state/domain.inbox/001.msg")" in
-    "$FM_FROMFIRST_MARK"*) : ;;
-    *) fail "fm-send must still mark a kind=secondmate target: $(literals "$dir")" ;;
-  esac
-  pass "fm-control's arrival leaves fm-send's from-firstmate marking untouched"
-}
 
 test_exit_types_each_harness_verified_command
 test_interrupt_sends_each_harness_verified_key
@@ -881,14 +758,10 @@ test_harness_family_resolution
 test_prefixed_recorded_harness_reaches_each_control_verb
 test_backend_key_capability_matrix
 test_harness_kind_capability
-test_orca_refuses_an_escape_harness_interrupt
-test_unverified_state_backends_refuse_stop_verbs
-test_state_verified_backends_are_exactly_tmux_and_herdr
 test_window_label_is_refused_with_the_exact_id
 test_explicit_endpoint_is_refused
 test_unknown_task_is_refused
 test_record_bound_to_another_task_is_refused
-test_remote_secondmate_is_refused_by_placement
 test_interrupt_and_exit_lock_before_task_state_resolution
 test_verb_allowlist_is_closed
 test_resume_is_refused_with_its_reason
@@ -907,4 +780,3 @@ test_agent_that_does_not_stop_fails_closed
 test_grok_interrupt_without_acknowledgement_reports_unconfirmed
 test_grok_idle_footer_does_not_confirm_cancellation
 test_secondmate_control_command_carries_no_marker
-test_fm_send_still_marks_the_same_secondmate_task

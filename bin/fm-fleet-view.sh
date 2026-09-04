@@ -34,9 +34,7 @@ printf '%s\n' "$SNAPSHOT" | jq -r '
     if $t.endpoint.exists == null then "unknown"
     elif $t.endpoint.exists then "present"
     else "absent" end;
-  def endpoint_of($t):
-    if $t.kind == "secondmate" then "\(endpoint_exists($t)) / \($t.endpoint.agent_alive)"
-    else endpoint_exists($t) end;
+  def endpoint_of($t): endpoint_exists($t);
   def artifact($t):
     if $t.pr.url != null then $t.pr.url
     elif $t.paths.report.present then $t.paths.report.path
@@ -47,9 +45,7 @@ printf '%s\n' "$SNAPSHOT" | jq -r '
     elif $t.paths.worktree.present then $t.paths.worktree.path
     elif $t.paths.worktree.path != null then $t.paths.worktree.path + " (absent)"
     else "-" end;
-  def action_of($t):
-    if $t.kind == "secondmate" then "\($t.actions.send) - \($t.actions.watch)"
-    else $t.actions.watch end;
+  def action_of($t): $t.actions.watch;
   def task_row($t):
     "| \($t.id) | \($t.current_state.state) / \($t.current_state.source) | \($t.kind) | \(dash($t.backlog.repo // $t.project)) | \($t.backend) | \(endpoint_of($t)) | \(artifact($t)) | \(path_of($t)) | \(action_of($t)) |";
   def blocker($r):
@@ -89,8 +85,5 @@ printf '%s\n' "$SNAPSHOT" | jq -r '
     "| ID | Title | Repo | Kind | Blocked By | Artifact |",
     "| --- | --- | --- | --- | --- | --- |",
     (.backlog.records[] | select(.state == "done") | backlog_row(.))
-   end),
-  "",
-  "## Secondmates",
-  .secondmate_guidance.note
+   end)
 '

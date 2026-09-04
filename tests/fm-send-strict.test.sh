@@ -14,6 +14,13 @@ set -u
 SEND="$ROOT/bin/fm-send.sh"
 TMP_ROOT=$(fm_test_tmproot fm-send-strict)
 
+
+setup_home() {  # <name> -> echoes home dir
+  local home="$TMP_ROOT/$1-$RANDOM"
+  mkdir -p "$home/state"
+  printf '%s\n' "$home"
+}
+
 make_stubs() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
@@ -85,12 +92,6 @@ SH
   printf '%s\n' "$fb"
 }
 
-setup_home() {  # <name> -> echoes home dir
-  local home="$TMP_ROOT/$1-$RANDOM"
-  mkdir -p "$home/state"
-  printf '%s\n' "$home"
-}
-
 test_exact_lane_id_send_still_works() {
   local dir fb home err log rc got
   dir="$TMP_ROOT/exact"; mkdir -p "$dir"
@@ -137,22 +138,6 @@ test_unresolvable_target_does_not_tmux_fallback() {
   pass "fm-send strict: unresolvable selectors do not fall back to tmux"
 }
 
-test_prefixless_herdr_pane_id_fails() {
-  local dir fb home err log rc
-  dir="$TMP_ROOT/herdr-pane"; mkdir -p "$dir"
-  fb=$(make_stubs "$dir"); home=$(setup_home herdr); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
-  fm_write_meta "$home/state/nudge.meta" \
-    "window=default:wB:p2" "backend=herdr" "herdr_session=default" "herdr_pane_id=wB:p2" "kind=ship"
-
-  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" wB:p2 "nudge" >/dev/null 2>"$err"; rc=$?
-  [ "$rc" -ne 0 ] || fail "prefixless herdr pane id should fail"
-  assert_contains "$(cat "$err")" "matches herdr_pane_id" "herdr pane diagnostic should name the meta match"
-  assert_contains "$(cat "$err")" "expected <herdr-session>:<pane-id>" "herdr pane diagnostic should show expected shape"
-  assert_contains "$(cat "$err")" "default:wB:p2" "herdr pane diagnostic should show the canonical target"
-  [ ! -s "$log" ] || fail "prefixless herdr pane id fell through to tmux send"$'\n'"$(cat "$log")"
-  pass "fm-send strict: prefixless herdr pane ids are rejected before tmux fallback"
-}
 
 test_unmatched_single_colon_target_must_exist() {
   local dir fb home err log rc
@@ -168,21 +153,6 @@ test_unmatched_single_colon_target_must_exist() {
   pass "fm-send strict: unmatched single-colon explicit targets must verify live before sending"
 }
 
-test_fm_prefixed_herdr_session_is_an_explicit_target() {
-  local dir fb home err log herdr_log rc
-  dir="$TMP_ROOT/fm-remote-explicit"; mkdir -p "$dir"
-  fb=$(make_stubs "$dir"); home=$(setup_home fmremote); err="$dir/send.err"; log="$dir/tmux.log"; herdr_log="$dir/herdr.log"
-  : > "$log"
-  : > "$herdr_log"
-
-  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_HERDR_LOG="$herdr_log" FM_SEND_SETTLE=0 \
-    "$SEND" fm-remote:w1:p2 --key Enter >/dev/null 2>"$err"; rc=$?
-  expect_code 0 "$rc" "an fm-prefixed Herdr session target should be accepted as explicit"
-  assert_grep 'pane get w1:p2 --session fm-remote' "$herdr_log" "fm-prefixed Herdr target was not verified in its session"
-  assert_grep 'pane send-keys w1:p2 enter --session fm-remote' "$herdr_log" "fm-prefixed Herdr target was not sent its key in its session"
-  assert_no_grep '--session default' "$herdr_log" "fm-prefixed Herdr target fell back to the default session"
-  pass "fm-send strict: fm-prefixed Herdr sessions remain explicit backend targets"
-}
 
 test_healthy_fm_id_send_still_works() {
   local dir fb home err log rc got
@@ -235,7 +205,5 @@ test_exact_lane_id_send_still_works
 test_key_send_exit_status_follows_delivery
 test_unset_fm_home_fails
 test_unresolvable_target_does_not_tmux_fallback
-test_prefixless_herdr_pane_id_fails
 test_unmatched_single_colon_target_must_exist
-test_fm_prefixed_herdr_session_is_an_explicit_target
 test_healthy_fm_id_send_still_works

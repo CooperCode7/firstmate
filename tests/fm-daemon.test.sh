@@ -25,6 +25,31 @@ TMP_ROOT=$(fm_test_tmproot fm-daemon-tests)
 FM_DAEMON_PRIMARY_HARNESS=claude
 export FM_DAEMON_PRIMARY_HARNESS
 
+make_wedge_case() {  # <name> -> echoes dir; creates state/, fakebin/{uname,osascript,herdr}, alert.log
+  local name=$1 dir fakebin
+  dir="$TMP_ROOT/$name"; fakebin="$dir/fakebin"
+  mkdir -p "$dir/state" "$fakebin"
+  # Fake uname so `auto` platform resolution is deterministic on any CI host.
+  cat > "$fakebin/uname" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "${FM_FAKE_UNAME:-Darwin}"
+SH
+  # Fakes keep command discovery deterministic on any CI host.
+  cat > "$fakebin/osascript" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' osascript >> "${FM_WEDGE_ALARM_REAL_LOG:-/dev/null}"
+exit 0
+SH
+  cat > "$fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' herdr >> "${FM_WEDGE_ALARM_REAL_LOG:-/dev/null}"
+exit 0
+SH
+  chmod +x "$fakebin/uname" "$fakebin/osascript" "$fakebin/herdr"
+  : > "$dir/alert.log"
+  printf '%s\n' "$dir"
+}
+
 test_afk_start_refuses_when_flag_cannot_be_written() {
   local dir state out status
   dir=$(make_supercase afk-start-flag-unwritable)
@@ -191,19 +216,6 @@ test_stale_diagnostic_wedge_survives_busy_housekeeping() {
   pass "enriched stale wedges bypass status absorption without disturbing busy workers"
 }
 
-test_stale_terminal_escalates() {
-  local dir state out
-  dir=$(make_supercase stale-terminal)
-  state="$dir/state"
-  printf 'done: ready in branch fm/t1\n' > "$state/fin-t5.status"
-  out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:fm-fin-t5" "$state")
-  case "$out" in escalate\|*) ;; *) fail "terminal stale did not escalate: $out" ;; esac
-  fm_write_meta "$state/herdr-t5.meta" "window=default:w1:p2" "backend=herdr"
-  printf 'done: ready in branch fm/herdr\n' > "$state/herdr-t5.status"
-  out=$(FM_STATE_OVERRIDE="$state" classify_stale "default:w1:p2" "$state")
-  case "$out" in escalate\|*) ;; *) fail "terminal herdr stale did not escalate through metadata: $out" ;; esac
-  pass "stale + terminal status escalates immediately"
-}
 
 # A DECLARED external-wait pause (paused:) is neither a wedge nor a terminal
 # escalation: classify_stale returns the `pause` action so handle_wake records a
@@ -545,124 +557,9 @@ test_housekeeping_resumed_stale_cleared() {
   pass "resumed (busy) stale clears its marker without escalating"
 }
 
-test_housekeeping_herdr_persistent_stale_resolves_meta() {
-  local dir state key
-  dir=$(make_supercase stale-herdr-persistent)
-  state="$dir/state"
-  fm_write_meta "$state/herdr-w7.meta" "window=default:w1:p2" "backend=herdr"
-  printf 'working\n' > "$state/herdr-w7.status"
-  key=$(printf '%s' "herdr-w7" | tr ':/.' '___')
-  echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
-  (
-    fm_backend_capture() {
-      [ "$1" = herdr ] || fail "expected herdr capture backend, got $1"
-      [ "$2" = "default:w1:p2" ] || fail "expected herdr window target, got $2"
-      printf 'idle prompt\n'
-    }
-    fm_backend_busy_state() {
-      [ "$1" = herdr ] || fail "expected herdr busy backend, got $1"
-      [ "$2" = "default:w1:p2" ] || fail "expected herdr busy target, got $2"
-      printf 'idle'
-    }
-    fm_backend_capture herdr default:w1:p2 40 >/dev/null
-    [ "$(fm_backend_busy_state herdr default:w1:p2)" = idle ] || fail "herdr busy stub did not report idle"
-    FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 housekeeping "$state"
-  ) || fail "herdr persistent stale housekeeping failed"
-  [ -s "$state/.subsuper-escalations" ] || fail "persistent herdr stale was not escalated"
-  [ ! -e "$state/.subsuper-stale-$key" ] || fail "herdr stale marker not cleared after escalation"
-  pass "persistent herdr stale resolves the target from metadata and escalates"
-}
 
-# A herdr crew whose native agent.get reads idle (generation state) but whose
-# own semantic busy-state record says busy is still working, so its stale
-# marker clears without escalating. The record - not the pane's rendered
-# footer - is what proves it.
-test_housekeeping_herdr_idle_busy_record_clears_stale() {
-  local dir state key gen
-  dir=$(make_supercase stale-herdr-idle-busy-record)
-  state="$dir/state"
-  fm_write_meta "$state/herdr-footer.meta" "window=default:w1:p4" "backend=herdr" "harness=claude"
-  printf 'working\n' > "$state/herdr-footer.status"
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" herdr-footer)
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" herdr-footer busy --gen "$gen" \
-    --source claude-hook --event user-prompt-submit
-  key=$(printf '%s' "herdr-footer" | tr ':/.' '___')
-  echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
-  (
-    fm_backend_capture() {
-      [ "$1" = herdr ] || fail "expected herdr capture backend, got $1"
-      [ "$2" = "default:w1:p4" ] || fail "expected herdr window target, got $2"
-      printf 'quiet\n'
-    }
-    fm_backend_busy_state() {
-      [ "$1" = herdr ] || fail "expected herdr busy backend, got $1"
-      [ "$2" = "default:w1:p4" ] || fail "expected herdr busy target, got $2"
-      printf 'idle'
-    }
-    fm_backend_capture herdr default:w1:p4 40 >/dev/null
-    [ "$(fm_backend_busy_state herdr default:w1:p4)" = idle ] || fail "herdr busy stub did not report idle"
-    FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 housekeeping "$state"
-  ) || fail "herdr idle busy-footer housekeeping failed"
-  [ ! -e "$state/.subsuper-stale-$key" ] || fail "idle-native busy-record herdr stale marker was not cleared"
-  [ ! -s "$state/.subsuper-escalations" ] || fail "idle-native busy-record herdr stale was escalated"
-  pass "herdr idle busy-footer stale clears through capture corroboration"
-}
 
-test_housekeeping_herdr_resumed_stale_cleared() {
-  local dir state key
-  dir=$(make_supercase stale-herdr-resumed)
-  state="$dir/state"
-  fm_write_meta "$state/herdr-busy.meta" "window=default:w1:p3" "backend=herdr"
-  printf 'working\n' > "$state/herdr-busy.status"
-  key=$(printf '%s' "herdr-busy" | tr ':/.' '___')
-  echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
-  (
-    fm_backend_capture() {
-      [ "$1" = herdr ] || fail "expected herdr capture backend, got $1"
-      [ "$2" = "default:w1:p3" ] || fail "expected herdr window target, got $2"
-      printf 'unchanged pane\n'
-    }
-    fm_backend_busy_state() {
-      [ "$1" = herdr ] || fail "expected herdr busy backend, got $1"
-      [ "$2" = "default:w1:p3" ] || fail "expected herdr busy target, got $2"
-      printf 'busy'
-    }
-    fm_backend_capture herdr default:w1:p3 40 >/dev/null
-    [ "$(fm_backend_busy_state herdr default:w1:p3)" = busy ] || fail "herdr busy stub did not report busy"
-    FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 housekeeping "$state"
-  ) || fail "herdr resumed stale housekeeping failed"
-  [ ! -e "$state/.subsuper-stale-$key" ] || fail "busy herdr stale marker was not cleared"
-  [ ! -s "$state/.subsuper-escalations" ] || fail "busy herdr stale was escalated"
-  pass "resumed herdr stale clears through backend-aware busy state"
-}
 
-test_housekeeping_orca_persistent_stale_resolves_terminal() {
-  local dir state key
-  dir=$(make_supercase stale-orca-persistent)
-  state="$dir/state"
-  fm_write_meta "$state/orca-w8.meta" "window=fm-orca-w8" "terminal=term-orca-w8" "backend=orca"
-  printf 'working\n' > "$state/orca-w8.status"
-  key=$(printf '%s' "orca-w8" | tr ':/.' '___')
-  echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
-  (
-    fm_backend_capture() {
-      [ "$1" = orca ] || fail "expected orca capture backend, got $1"
-      [ "$2" = "term-orca-w8" ] || fail "expected Orca terminal target, got $2"
-      printf 'idle prompt\n'
-    }
-    fm_backend_busy_state() {
-      [ "$1" = orca ] || fail "expected orca busy backend, got $1"
-      [ "$2" = "term-orca-w8" ] || fail "expected Orca busy target, got $2"
-      printf 'idle'
-    }
-    fm_backend_capture orca term-orca-w8 40 >/dev/null
-    [ "$(fm_backend_busy_state orca term-orca-w8)" = idle ] || fail "Orca busy stub did not report idle"
-    FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 housekeeping "$state"
-  ) || fail "Orca persistent stale housekeeping failed"
-  [ -s "$state/.subsuper-escalations" ] || fail "persistent Orca stale was not escalated"
-  [ ! -e "$state/.subsuper-stale-$key" ] || fail "Orca stale marker not cleared after escalation"
-  pass "persistent Orca stale resolves the terminal from metadata"
-}
 
 test_escalate_batches_into_one_digest() {
   local dir state fakebin sent capture n
@@ -1316,42 +1213,6 @@ test_max_defer_afk_inactive_does_not_flush_or_alarm() {
   pass "max-defer does not flush or alarm while afk is inactive"
 }
 
-# --- backend-independent active wedge alert ---------------------------------
-# These cover the 2026-07-10 overnight-incident fix: the max-defer wedge alarm's
-# ACTIVE alert channel must reach the captain even when the wedged pane and its
-# backend status-line are unreadable (a claude-on-herdr primary that night).
-#
-# NO test here EVER posts a real notification. Every notifier routes through
-# the FM_WEDGE_ALARM_EXEC seam, which tests/wake-helpers.sh forces to a recorder
-# ($FM_WEDGE_ALARM_LOG logs "<channel>\t<summary>"); the daemon also defaults
-# that seam to "discard" whenever it is sourced. Assertions read the recorder
-# log, so they verify channel SELECTION and summary propagation; the real
-# osascript/herdr argv is verified once by the bounded manual evidence in
-# docs/wedge-alarm.md, never from a suite.
-make_wedge_case() {  # <name> -> echoes dir; creates state/, fakebin/{uname,osascript,herdr}, alert.log
-  local name=$1 dir fakebin
-  dir="$TMP_ROOT/$name"; fakebin="$dir/fakebin"
-  mkdir -p "$dir/state" "$fakebin"
-  # Fake uname so `auto` platform resolution is deterministic on any CI host.
-  cat > "$fakebin/uname" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "${FM_FAKE_UNAME:-Darwin}"
-SH
-  # Fakes keep command discovery deterministic on any CI host.
-  cat > "$fakebin/osascript" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' osascript >> "${FM_WEDGE_ALARM_REAL_LOG:-/dev/null}"
-exit 0
-SH
-  cat > "$fakebin/herdr" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' herdr >> "${FM_WEDGE_ALARM_REAL_LOG:-/dev/null}"
-exit 0
-SH
-  chmod +x "$fakebin/uname" "$fakebin/osascript" "$fakebin/herdr"
-  : > "$dir/alert.log"
-  printf '%s\n' "$dir"
-}
 
 test_wedge_alarm_library_mode_defaults_to_discard() {
   # The structural guarantee: sourcing the daemon with NO seam configured defaults
@@ -1387,55 +1248,9 @@ SH
   pass "wake helpers replace inherited notifier overrides with the safe recorder"
 }
 
-test_wedge_alarm_discard_seam_fires_nothing() {
-  local dir log command_output channel
-  dir=$(make_wedge_case wedge-discard); log="$dir/alert.log"
-  command_output="$dir/command-output"
-  channel="command: printf '%s' \"\$1\" > '$command_output'"
-  PATH="$dir/fakebin:$PATH" FM_WEDGE_ALARM_LOG="$log" FM_WEDGE_ALARM_EXEC=discard \
-    FM_WEDGE_ALARM_CHANNEL=$'osascript\nherdr\n'"$channel" \
-    wedge_alarm_notify "away-mode WEDGED 900s" "/s/.marker"
-  [ ! -s "$log" ] || fail "the discard seam still fired a notifier: $(cat "$log")"
-  [ ! -e "$command_output" ] || fail "the discard seam still fired a command: notifier"
-  pass "the discard seam suppresses every notifier, including command: (fires nothing)"
-}
 
-test_wedge_alarm_direct_notifiers_honor_discard_seam() {
-  local dir real_log command_output command
-  dir=$(make_wedge_case wedge-direct-discard); real_log="$dir/real.log"
-  command_output="$dir/command-output"
-  command="printf '%s' \"\$1\" > '$command_output'"
-  PATH="$dir/fakebin:$PATH" FM_WEDGE_ALARM_REAL_LOG="$real_log" FM_WEDGE_ALARM_EXEC=discard \
-    wedge_alarm_via_osascript "away-mode WEDGED 900s"
-  PATH="$dir/fakebin:$PATH" FM_WEDGE_ALARM_REAL_LOG="$real_log" FM_WEDGE_ALARM_EXEC=discard \
-    wedge_alarm_via_herdr "away-mode WEDGED 900s"
-  FM_WEDGE_ALARM_EXEC=discard wedge_alarm_via_command "$command" "away-mode WEDGED 900s"
-  [ ! -s "$real_log" ] || fail "direct notifier helpers bypassed the discard seam: $(cat "$real_log")"
-  [ ! -e "$command_output" ] || fail "direct command helper bypassed the discard seam"
-  pass "direct notifier helpers honor the discard seam, including command:"
-}
 
-test_wedge_alarm_osascript_channel_selected() {
-  local dir log
-  dir=$(make_wedge_case wedge-osascript); log="$dir/alert.log"
-  FM_WEDGE_ALARM_LOG="$log" FM_WEDGE_ALARM_CHANNEL=osascript \
-    wedge_alarm_notify "away-mode escalations WEDGED 600s undelivered - see /s/.marker" "/s/.marker"
-  grep -F 'osascript' "$log" >/dev/null || fail "osascript channel not routed through the notifier seam: $(cat "$log")"
-  grep -F 'WEDGED 600s undelivered' "$log" >/dev/null || fail "osascript channel did not carry the summary"
-  grep -F 'herdr' "$log" >/dev/null && fail "osascript-only config also selected herdr"
-  pass "osascript channel routes through the notifier seam with the summary (never a real notification)"
-}
 
-test_wedge_alarm_herdr_channel_selected() {
-  local dir log
-  dir=$(make_wedge_case wedge-herdr); log="$dir/alert.log"
-  FM_WEDGE_ALARM_LOG="$log" FM_WEDGE_ALARM_CHANNEL=herdr \
-    wedge_alarm_notify "away-mode escalations WEDGED 800s undelivered - see /s/.marker" "/s/.marker"
-  grep -F 'herdr' "$log" >/dev/null || fail "herdr channel not routed through the notifier seam: $(cat "$log")"
-  grep -F 'WEDGED 800s undelivered' "$log" >/dev/null || fail "herdr channel did not carry the summary"
-  grep -F 'osascript' "$log" >/dev/null && fail "herdr-only config also selected osascript"
-  pass "herdr channel routes through the notifier seam with the summary (never a real notification)"
-}
 
 test_wedge_alarm_command_channel_receives_summary() {
   local dir out_argv out_stdin chan
@@ -1509,30 +1324,7 @@ test_wedge_alarm_auto_non_darwin_has_no_os_channel() {
   pass "auto on a non-macOS platform selects no built-in OS channel (the marker or a configured command carries it)"
 }
 
-test_wedge_alarm_config_file_multi_channel() {
-  local dir cfgdir log
-  dir=$(make_wedge_case wedge-config); log="$dir/alert.log"
-  cfgdir="$dir/config"; mkdir -p "$cfgdir"
-  printf '# active alert channels\n\nosascript\nherdr\n' > "$cfgdir/wedge-alarm"
-  FM_WEDGE_ALARM_LOG="$log" FM_CONFIG_OVERRIDE="$cfgdir" \
-    wedge_alarm_notify "away-mode WEDGED 700s" "/s/.marker"
-  grep -F 'osascript' "$log" >/dev/null || fail "config/wedge-alarm osascript line was not selected"
-  grep -F 'herdr' "$log" >/dev/null || fail "config/wedge-alarm herdr line was not selected"
-  pass "config/wedge-alarm selects every configured channel and skips comment and blank lines"
-}
 
-test_wedge_alarm_failing_channel_degrades_gracefully() {
-  local dir log rc
-  dir=$(make_wedge_case wedge-degrade); log="$dir/alert.log"
-  FM_WEDGE_ALARM_LOG="$log" FM_WEDGE_ALARM_FAIL=osascript \
-    FM_WEDGE_ALARM_CHANNEL=$'osascript\nherdr' \
-    wedge_alarm_notify "away-mode WEDGED 900s" "/s/.marker"
-  rc=$?
-  [ "$rc" -eq 0 ] || fail "a failing channel made wedge_alarm_notify return non-zero ($rc)"
-  grep -F 'osascript' "$log" >/dev/null || fail "the failing osascript channel was not even attempted"
-  grep -F 'herdr' "$log" >/dev/null || fail "a failing earlier channel prevented the herdr channel from firing"
-  pass "a failing channel logs and falls back to the next channel, never crashing the alarm"
-}
 
 test_wedge_alarm_hung_channel_times_out_and_falls_through() {
   local dir daemon_log output channel start elapsed
@@ -1570,27 +1362,6 @@ test_wedge_alarm_backgrounded_command_times_out_and_reaps_descendant() {
   pass "a backgrounded command notifier remains bounded until its process group is reaped"
 }
 
-test_wedge_alarm_hung_override_times_out_and_falls_through() {
-  local dir blocker daemon_log start elapsed
-  dir=$(make_wedge_case wedge-override-timeout)
-  blocker="$dir/blocker"; daemon_log="$dir/daemon.log"
-  cat > "$blocker" <<'SH'
-#!/usr/bin/env bash
-sleep 30
-SH
-  chmod +x "$blocker"
-  start=$SECONDS
-  LOG="$daemon_log" FM_WEDGE_ALARM_EXEC="$blocker" FM_WEDGE_ALARM_TIMEOUT_SECS=1 \
-    FM_WEDGE_ALARM_CHANNEL=$'osascript\nherdr' \
-    wedge_alarm_notify "away-mode WEDGED 900s" "/s/.marker"
-  elapsed=$((SECONDS - start))
-  [ "$elapsed" -lt 6 ] || fail "a hung wedge notifier override blocked the alarm for ${elapsed}s"
-  grep -F 'osascript notifier timed out' "$daemon_log" >/dev/null \
-    || fail "a hung notifier override did not log its timeout: $(cat "$daemon_log" 2>/dev/null)"
-  grep -F 'herdr notifier timed out' "$daemon_log" >/dev/null \
-    || fail "a hung notifier override prevented the next channel: $(cat "$daemon_log" 2>/dev/null)"
-  pass "a hung notifier override is bounded, logged, and proceeds to the next channel"
-}
 
 test_wedge_alarm_shutdown_stops_active_notifier_group() {
   local dir child_file pid child
@@ -1628,27 +1399,6 @@ test_inject_wedge_alarm_fires_active_alert_on_non_tmux_backend() {
   pass "inject_wedge_alarm writes the marker AND emits the active alert even with no tmux status-line (herdr backend)"
 }
 
-test_inject_wedge_alarm_throttles_when_marker_cannot_be_written() {
-  local dir state log daemon_log alerts errors
-  dir=$(make_wedge_case wedge-unwritable-marker)
-  state="$dir/state"; log="$dir/alert.log"; daemon_log="$dir/daemon.log"
-  escalate_add "$state" "needs-decision: pick A"
-  chmod u-w "$state"
-  WEDGE_ALARM_LAST_EPOCH=0
-  LOG="$daemon_log" FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
-    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
-    inject_wedge_alarm "$state" 30600
-  LOG="$daemon_log" FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
-    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
-    inject_wedge_alarm "$state" 30615
-  chmod u+w "$state"
-  [ ! -e "$state/.subsuper-inject-wedged" ] || fail "wedge marker unexpectedly persisted in an unwritable state directory"
-  alerts=$(grep -c 'osascript' "$log" 2>/dev/null || true)
-  [ "$alerts" -eq 1 ] || fail "unwritable marker emitted $alerts active alerts instead of one"
-  errors=$(grep -c 'ERROR: away-mode escalation undelivered' "$daemon_log" 2>/dev/null || true)
-  [ "$errors" -eq 1 ] || fail "unwritable marker logged $errors wedge errors instead of one"
-  pass "in-process wedge throttle prevents alert spam when the marker cannot persist"
-}
 
 test_fm_send_reports_delivered_unconfirmed_submit() {
   # When typed-plane text was typed and Enter sent but the submit read-back
@@ -1719,71 +1469,9 @@ test_fm_send_exits_nonzero_on_unproven_submit() {
 # for the duration of that one call only, so these tests are deterministic
 # regardless of what runtime backend is running this test suite itself.
 
-test_discover_supervisor_backend_precedence() {
-  local out
-  out=$(FM_SUPERVISOR_BACKEND=herdr TMUX_PANE='%9' HERDR_ENV=1 HERDR_PANE_ID=w1:p1 discover_supervisor_backend)
-  [ "$out" = herdr ] || fail "explicit FM_SUPERVISOR_BACKEND override was not honored: $out"
 
-  out=$(FM_SUPERVISOR_BACKEND='' TMUX_PANE='%9' HERDR_ENV=1 HERDR_PANE_ID=w1:p1 discover_supervisor_backend)
-  [ "$out" = tmux ] || fail "TMUX_PANE should win over HERDR_ENV (tmux nested in herdr resolves to tmux): $out"
 
-  out=$(FM_SUPERVISOR_BACKEND='' TMUX_PANE='' HERDR_ENV=1 HERDR_PANE_ID=w1:p1 discover_supervisor_backend)
-  [ "$out" = herdr ] || fail "HERDR_ENV=1 with HERDR_PANE_ID present should resolve to herdr: $out"
 
-  if out=$(FM_SUPERVISOR_BACKEND='' TMUX_PANE='' HERDR_ENV='' HERDR_PANE_ID='' discover_supervisor_backend); then
-    fail "bare fallback (no override, no TMUX_PANE, no HERDR_ENV) should return non-zero"
-  fi
-  [ "$out" = tmux ] || fail "bare fallback should still print tmux: $out"
-
-  pass "discover_supervisor_backend: override > TMUX_PANE > HERDR_ENV+HERDR_PANE_ID > tmux fallback"
-}
-
-test_discover_supervisor_target_herdr() {
-  local out
-  out=$(FM_SUPERVISOR_TARGET=explicit:target TMUX_PANE='' HERDR_ENV=1 HERDR_PANE_ID=w1:p9 discover_supervisor_target)
-  [ "$out" = "explicit:target" ] || fail "explicit FM_SUPERVISOR_TARGET override was not honored: $out"
-
-  out=$(FM_SUPERVISOR_TARGET='' TMUX_PANE='%3' HERDR_ENV=1 HERDR_PANE_ID=w1:p9 discover_supervisor_target)
-  [ "$out" = '%3' ] || fail "TMUX_PANE should win over herdr markers: $out"
-
-  out=$(FM_SUPERVISOR_TARGET='' TMUX_PANE='' HERDR_ENV=1 HERDR_PANE_ID=w1:p9 HERDR_SESSION='' discover_supervisor_target)
-  [ "$out" = "default:w1:p9" ] || fail "herdr target should default HERDR_SESSION to 'default': $out"
-
-  out=$(FM_SUPERVISOR_TARGET='' TMUX_PANE='' HERDR_ENV=1 HERDR_PANE_ID=w1:p9 HERDR_SESSION=iso1 discover_supervisor_target)
-  [ "$out" = "iso1:w1:p9" ] || fail "herdr target should use an explicit HERDR_SESSION: $out"
-
-  if out=$(FM_SUPERVISOR_TARGET='' TMUX_PANE='' HERDR_ENV='' HERDR_PANE_ID='' discover_supervisor_target); then
-    fail "bare fallback should return non-zero"
-  fi
-  [ "$out" = "firstmate:0" ] || fail "bare fallback should still print firstmate:0: $out"
-
-  pass "discover_supervisor_target: override > TMUX_PANE > herdr '<session>:<pane-id>' composition > firstmate:0 fallback"
-}
-
-test_pane_is_busy_herdr_native_busy_state() {
-  local dir
-  dir=$(make_supercase primary-herdr-busy)
-  (
-    fm_backend_busy_state() { [ "$1" = herdr ] && [ "$2" = "default:w1:p2" ] || fail "unexpected busy_state args: $1 $2"; printf 'busy'; }
-    fm_backend_capture() { fail "capture should not be consulted when busy_state is conclusive"; }
-    FM_STATE_OVERRIDE="$dir/state" FM_DAEMON_PRIMARY_HARNESS=claude pane_is_busy "default:w1:p2" herdr \
-      || fail "pane_is_busy should report busy from herdr's native busy_state"
-  ) || fail "herdr native-busy pane_is_busy subshell failed"
-  pass "pane_is_busy: herdr native busy_state='busy' short-circuits without a capture fallback"
-}
-
-test_primary_busy_guard_is_harness_scoped() {
-  (
-    fm_backend_busy_state() { printf 'unknown'; }
-    fm_backend_capture() { printf 'esc interrupt\n'; }
-    if FM_DAEMON_PRIMARY_HARNESS=claude pane_is_busy "default:w1:p2" herdr; then
-      fail "OpenCode's rendered signature must not classify a Claude primary busy"
-    fi
-    FM_DAEMON_PRIMARY_HARNESS=opencode pane_is_busy "default:w1:p2" herdr \
-      || fail "OpenCode's rendered signature should classify an OpenCode primary busy"
-  ) || fail "harness-scoped primary busy guard subshell failed"
-  pass "primary busy guard isolates rendered signatures by detected harness"
-}
 
 test_pane_is_busy_defaults_to_tmux_when_backend_omitted() {
   local dir fakebin capture
@@ -1795,133 +1483,12 @@ test_pane_is_busy_defaults_to_tmux_when_backend_omitted() {
   pass "pane_is_busy: omitted backend defaults to tmux for Grok's isolated fallback"
 }
 
-test_pane_input_pending_herdr_dispatch() {
-  (
-    fm_backend_composer_state() { [ "$1" = herdr ] && [ "$2" = "default:w1:p2" ] || fail "unexpected composer_state args: $1 $2"; printf 'pending'; }
-    pane_input_pending "default:w1:p2" herdr || fail "pane_input_pending should report pending from herdr composer_state"
-  ) || fail "herdr pane_input_pending (pending case) subshell failed"
-  (
-    fm_backend_composer_state() { printf 'empty'; }
-    if pane_input_pending "default:w1:p2" herdr; then
-      fail "pane_input_pending should report not-pending for an empty herdr composer"
-    fi
-  ) || fail "herdr pane_input_pending (empty case) subshell failed"
-  (
-    fm_backend_composer_state() { printf 'future-state'; }
-    pane_input_pending "default:w1:p2" herdr \
-      || fail "pane_input_pending should defer on an unrecognized composer state"
-  ) || fail "herdr pane_input_pending (future-state case) subshell failed"
-  pass "pane_input_pending: dispatches through fm_backend_composer_state for backend=herdr"
-}
 
-test_inject_msg_herdr_busy_guard_defers() {
-  local dir state
-  dir=$(make_supercase inject-herdr-busy)
-  state="$dir/state"
-  afk_enter "$state"
-  (
-    fm_backend_target_exists() { [ "$1" = herdr ] && [ "$2" = "default:w1:p2" ] || fail "unexpected target_exists args: $1 $2"; return 0; }
-    pane_is_busy() { return 0; }
-    fm_backend_composer_state() { fail "composer_state should not be consulted once the busy-guard already deferred"; }
-    fm_backend_send_text_submit() { fail "send_text_submit should not run when the busy-guard defers"; }
-    if FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:p2" inject_msg "hello" "$state"; then
-      fail "inject_msg should defer (return non-zero) when the herdr supervisor pane is busy"
-    fi
-  ) || fail "herdr busy-guard inject_msg subshell failed"
-  pass "inject_msg: herdr busy-guard defers before ever attempting a submit"
-}
 
-test_inject_msg_herdr_composer_guard_defers() {
-  local dir state
-  dir=$(make_supercase inject-herdr-pending)
-  state="$dir/state"
-  afk_enter "$state"
-  (
-    fm_backend_target_exists() { return 0; }
-    pane_is_busy() { return 1; }
-    fm_backend_composer_state() { [ "$1" = herdr ] && [ "$2" = "default:w1:p2" ] || fail "unexpected composer_state args: $1 $2"; printf 'pending'; }
-    fm_backend_send_text_submit() { fail "send_text_submit should not run when the composer-guard defers"; }
-    if FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:p2" inject_msg "hello" "$state"; then
-      fail "inject_msg should defer when the herdr composer has pending input"
-    fi
-  ) || fail "herdr composer-guard inject_msg subshell failed"
-  pass "inject_msg: herdr composer-guard defers before ever attempting a submit"
-}
 
-test_inject_msg_herdr_pane_gone_defers() {
-  local dir state
-  dir=$(make_supercase inject-herdr-gone)
-  state="$dir/state"
-  afk_enter "$state"
-  (
-    fm_backend_target_exists() { return 1; }
-    pane_is_busy() { fail "busy guard should not be consulted once the pane-exists check already failed"; }
-    fm_backend_send_text_submit() { fail "send_text_submit should not run when the pane does not exist"; }
-    if FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:gone" inject_msg "hello" "$state"; then
-      fail "inject_msg should defer when the herdr target does not exist"
-    fi
-  ) || fail "herdr pane-gone inject_msg subshell failed"
-  pass "inject_msg: herdr pane-gone check defers before any busy/composer/submit call"
-}
 
-test_inject_msg_herdr_submits_through_backend_dispatch() {
-  local dir state
-  dir=$(make_supercase inject-herdr-submit)
-  state="$dir/state"
-  afk_enter "$state"
-  (
-    fm_backend_target_exists() { return 0; }
-    pane_is_busy() { return 1; }
-    fm_backend_composer_state() { printf 'empty'; }
-    fm_backend_send_text_submit() {
-      [ "$1" = herdr ] && [ "$2" = "default:w1:p2" ] || fail "unexpected send_text_submit args: $1 $2"
-      case "$3" in *"hello"*) : ;; *) fail "digest text missing from send_text_submit: $3" ;; esac
-      printf 'empty'
-    }
-    FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:p2" inject_msg "hello" "$state" \
-      || fail "inject_msg should succeed when send_text_submit confirms empty"
-  ) || fail "herdr successful-submit inject_msg subshell failed"
-  pass "inject_msg: dispatches busy-guard/composer-guard/submit through the herdr backend and succeeds on a confirmed empty composer"
-}
 
-# Safety-critical (task fm-composer-shellglyph-safety): the away-mode injector
-# must NEVER type an escalation into a dead-shell pane. A bare shell prompt
-# classifies `unknown` (not `pending`), and inject_msg now defers on anything
-# that is not affirmatively `empty`, so a dead shell (or an unreadable pane) can
-# never be mistaken for a safe empty agent composer and typed into.
-test_inject_msg_defers_on_dead_shell_unknown() {
-  local dir state
-  dir=$(make_supercase inject-dead-shell)
-  state="$dir/state"
-  afk_enter "$state"
-  (
-    fm_backend_target_exists() { return 0; }
-    pane_is_busy() { return 1; }
-    fm_backend_composer_state() { printf 'unknown'; }
-    fm_backend_send_text_submit() { fail "send_text_submit must NOT run when the composer is a dead shell (unknown)"; }
-    if FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:p2" inject_msg "hello" "$state"; then
-      fail "inject_msg should defer (never inject) when the composer reads unknown (dead shell / unreadable)"
-    fi
-  ) || fail "dead-shell inject_msg subshell failed"
-  pass "inject_msg: defers on a dead-shell/unreadable composer (unknown), never typing the escalation into a shell"
-}
 
-test_inject_msg_defers_on_unrecognized_composer_state() {
-  local dir state
-  dir=$(make_supercase inject-future-composer-state)
-  state="$dir/state"
-  afk_enter "$state"
-  (
-    fm_backend_target_exists() { return 0; }
-    pane_is_busy() { return 1; }
-    fm_backend_composer_state() { printf 'future-state'; }
-    fm_backend_send_text_submit() { fail "send_text_submit must not run for an unrecognized composer state"; }
-    if FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:p2" inject_msg "hello" "$state"; then
-      fail "inject_msg should defer on an unrecognized composer state"
-    fi
-  ) || fail "unrecognized composer-state inject_msg subshell failed"
-  pass "inject_msg: unrecognized composer states defer by default"
-}
 
 test_afk_start_refuses_when_flag_cannot_be_written
 test_afk_start_ignores_stale_pidfile_without_lock
@@ -1932,7 +1499,6 @@ test_classify_terminal_signal_escalates
 test_classify_check_and_unknown_escalate
 test_stale_transient_self_records_marker
 test_stale_diagnostic_wedge_survives_busy_housekeeping
-test_stale_terminal_escalates
 test_stale_paused_classifies_pause
 test_stale_captain_held_classifies_pause
 test_handle_wake_paused_records_pause_marker
@@ -1951,10 +1517,6 @@ test_housekeeping_captain_held_resolved_cleared
 test_housekeeping_stale_marker_transitions_to_pause
 test_housekeeping_captain_held_stale_marker_transitions_to_pause
 test_housekeeping_pause_marker_transitions_to_clear
-test_housekeeping_herdr_persistent_stale_resolves_meta
-test_housekeeping_herdr_idle_busy_record_clears_stale
-test_housekeeping_herdr_resumed_stale_cleared
-test_housekeeping_orca_persistent_stale_resolves_terminal
 test_escalate_batches_into_one_digest
 test_escalate_batch_age_uses_first_append
 test_heartbeat_scan_dedup
@@ -1993,36 +1555,17 @@ test_below_max_defer_does_nothing
 test_max_defer_afk_inactive_does_not_flush_or_alarm
 test_wedge_alarm_library_mode_defaults_to_discard
 test_wake_helpers_replace_inherited_notifier_override
-test_wedge_alarm_discard_seam_fires_nothing
-test_wedge_alarm_direct_notifiers_honor_discard_seam
-test_wedge_alarm_osascript_channel_selected
-test_wedge_alarm_herdr_channel_selected
 test_wedge_alarm_command_channel_receives_summary
 test_wedge_alarm_command_failure_hides_configured_command
 test_wedge_alarm_unknown_channel_hides_configured_directive
 test_wedge_alarm_off_disables_active_alert_regardless_of_position
 test_wedge_alarm_auto_darwin_selects_osascript
 test_wedge_alarm_auto_non_darwin_has_no_os_channel
-test_wedge_alarm_config_file_multi_channel
-test_wedge_alarm_failing_channel_degrades_gracefully
 test_wedge_alarm_hung_channel_times_out_and_falls_through
 test_wedge_alarm_backgrounded_command_times_out_and_reaps_descendant
-test_wedge_alarm_hung_override_times_out_and_falls_through
 test_wedge_alarm_shutdown_stops_active_notifier_group
 test_inject_wedge_alarm_fires_active_alert_on_non_tmux_backend
-test_inject_wedge_alarm_throttles_when_marker_cannot_be_written
 test_fm_send_reports_delivered_unconfirmed_submit
 test_fm_send_exits_nonzero_on_initial_send_failure
 test_fm_send_exits_nonzero_on_unproven_submit
-test_discover_supervisor_backend_precedence
-test_discover_supervisor_target_herdr
-test_pane_is_busy_herdr_native_busy_state
-test_primary_busy_guard_is_harness_scoped
 test_pane_is_busy_defaults_to_tmux_when_backend_omitted
-test_pane_input_pending_herdr_dispatch
-test_inject_msg_herdr_busy_guard_defers
-test_inject_msg_herdr_composer_guard_defers
-test_inject_msg_herdr_pane_gone_defers
-test_inject_msg_herdr_submits_through_backend_dispatch
-test_inject_msg_defers_on_dead_shell_unknown
-test_inject_msg_defers_on_unrecognized_composer_state

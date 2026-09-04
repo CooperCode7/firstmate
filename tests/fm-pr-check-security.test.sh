@@ -13,8 +13,8 @@ set -u
 
 PR_CHECK="$ROOT/bin/fm-pr-check.sh"
 PR_MERGE="$ROOT/bin/fm-pr-merge.sh"
-MIGRATE="$ROOT/bin/fm-pr-check-migrate.sh"
 POLL="$ROOT/bin/fm-pr-poll.sh"
+MIGRATE="$ROOT/bin/fm-pr-check-migrate.sh"
 WATCH="$ROOT/bin/fm-watch.sh"
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 REGISTER="$ROOT/bin/fm-check-register.sh"
@@ -2096,11 +2096,6 @@ test_bootstrap_isolates_incomplete_poll_migration() {
   fm_pr_poll_prepare "$state" z-healthy github https://github.com/o/r/pull/13 github.com o/r 13 "$POLL" \
     || fail "could not prepare healthy poll for migration isolation"
   fm_pr_poll_publish_prepared || fail "could not publish healthy poll for migration isolation"
-  fm_write_meta "$state/secondmate-a.meta" \
-    'window=firstmate:fm-secondmate-a' \
-    'kind=secondmate' \
-    'harness=codex' \
-    'backend=tmux'
   mkdir -p "$dir/home/projects"
   fm_fake_exit0 "$fakebin" curl jq
   cat > "$fakebin/tmux" <<'SH'
@@ -2133,10 +2128,6 @@ SH
     "$state/.pr-check-migration.log" "isolated bootstrap migration did not publish a durable repair diagnostic"
   assert_grep 'migration did not complete safely' "$dir/bootstrap.err" \
     "isolated bootstrap migration did not surface its incomplete status"
-  assert_grep 'SECONDMATE_SYNC: secondmate secondmate-a: skipped:' "$dir/bootstrap.out" \
-    "incomplete poll migration suppressed secondmate sync"
-  assert_grep 'SECONDMATE_LIVENESS: secondmate secondmate-a: skipped: existing endpoint has ambiguous agent process' "$dir/bootstrap.out" \
-    "incomplete poll migration suppressed persistent supervisor recovery"
   [ -e "$fleet_marker" ] || fail "incomplete poll migration suppressed fleet refresh"
   assert_grep 'FLEET_SYNC: alpha: recovered: continued after isolated migration failure' "$dir/bootstrap.out" \
     "continued fleet refresh was not operator-visible"

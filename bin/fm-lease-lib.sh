@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # fm-lease-lib.sh - the per-task supervision lease contract (one owner).
 #
-# WHY. On the Pi supervision branch (docs/pi-supervision-branch.md), two LLM
 # actors share one firstmate home inside one pi process: MAIN (the captain's
 # chat) and BRANCH (the persistent supervision conversation). Most records have
 # exactly one natural owner, but the overlap set - steering or stopping a
@@ -213,6 +212,5 @@ fm_lease_forbid_branch() {
   local action=$1 actor
   actor=$(fm_lease_actor) || exit "$FM_LEASE_REFUSE_EXIT"
   [ "$actor" = branch ] || return 0
-  echo "error: $action refused - the supervision branch never performs this action; report the outcome and leave it to main (role partition: docs/pi-supervision-branch.md)" >&2
   exit "$FM_LEASE_REFUSE_EXIT"
 }

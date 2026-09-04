@@ -5,8 +5,6 @@
 # clone, and the receiving host re-validates whatever reached it, so this file
 # is the single owner of which origins are accepted. Nothing here discovers an
 # origin, so no caller has to create a local clone just to learn one. It is
-# sourced by both the sending parent (bin/fm-remote-home-seed.sh) and the
-# receiving host (bin/fm-remote-home-provision.sh), so an unsafe value is
 # refused at each end rather than trusted because the other end already looked
 # at it.
 #
