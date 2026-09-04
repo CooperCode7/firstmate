@@ -58,6 +58,8 @@ if [ -n "${GH_TOKEN:-}" ]; then
   gh auth setup-git 2>/dev/null || echo "entrypoint: gh auth setup-git failed; check GH_TOKEN scope" >&2
 fi
 
+/opt/firstmate/bin/fm-pin-pipeline-model.sh
+
 # Linux has no default alert channel, so away-mode escalations go to ClickUp.
 if [ -n "${FM_CLICKUP_TASK:-}" ] && [ ! -e "$FM_HOME/config/wedge-alarm" ]; then
   printf 'command:/opt/firstmate/bin/fm-clickup-notify.sh\n' > "$FM_HOME/config/wedge-alarm"
