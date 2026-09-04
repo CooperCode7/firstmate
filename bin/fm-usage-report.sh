@@ -132,7 +132,7 @@ DIR_LIST=$(printf '%s' "$DIRS" | sed '/^$/d' | paste -sd, -)
 [ -n "$PRIMARIES" ] || PRIMARIES="$FM_ROOT"$'\n'
 PRIMARY_JSON=$(printf '%s' "$PRIMARIES" | sed '/^$/d' | jq -R . | jq -sc .)
 
-TMP=$(mktemp -t fm-usage-report) || { echo "error: could not create a temporary file" >&2; exit 1; }
+TMP=$(mktemp "${TMPDIR:-/tmp}/fm-usage-report.XXXXXX") || { echo "error: could not create a temporary file" >&2; exit 1; }
 trap 'rm -f "$TMP"' EXIT INT TERM
 
 # shellcheck disable=SC2016 # jq program: $-vars are jq's, not the shell's
@@ -158,10 +158,14 @@ select(.type=="assistant" and .message.usage != null)
    ts: (.timestamp // "")}
 | select(.req != "" and .ts != "")'
 
+# find -exec ... + rather than a pipe into xargs: with no matching file GNU xargs
+# still runs the command once, which would leave jq reading this loop's stdin and
+# writing junk that defeats the no-records refusal below. -exec + never runs on
+# zero matches, and keeps stdin free either way.
 while IFS= read -r d; do
   [ -n "$d" ] || continue
-  find "$d" -name '*.jsonl' -type f -print0 2>/dev/null \
-    | xargs -0 -n 40 jq -c --argjson primaries "$PRIMARY_JSON" "$EXTRACT" 2>/dev/null >> "$TMP" || true
+  find "$d" -name '*.jsonl' -type f \
+    -exec jq -c --argjson primaries "$PRIMARY_JSON" "$EXTRACT" {} + >> "$TMP" 2>/dev/null || true
 done <<EOF
 $DIRS
 EOF
