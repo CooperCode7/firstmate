@@ -34,8 +34,8 @@ test_commented_default_still_gets_pinned() {
   "$PIN" "$config" >/dev/null || fail "pin failed on shipped config"
 
   grep -qE '^agent_config:' "$config" || fail "no uncommented agent_config written"
-  grep -qE '^    model: sonnet$' "$config" || fail "model not pinned to sonnet"
-  grep -qE '^    effort: high$' "$config" || fail "effort not pinned to high"
+  grep -qF '    model: "opus[1m]"' "$config" || fail "model not pinned to opus[1m]"
+  grep -qE '^    effort: xhigh$' "$config" || fail "effort not pinned to xhigh"
   grep -qE '^agent: auto$' "$config" || fail "existing keys lost"
   rm -rf "$dir"
   pass "a commented agent_config block does not count as already pinned"
@@ -45,7 +45,7 @@ test_existing_choice_is_never_overwritten() {
   local dir config before after
   dir=$(mktemp -d)
   config="$dir/config.yaml"
-  printf 'agent_config:\n  claude:\n    model: opus[1m]\n    effort: xhigh\n' > "$config"
+  printf 'agent_config:\n  claude:\n    model: sonnet\n    effort: low\n' > "$config"
   before=$(cat "$config")
 
   "$PIN" "$config" >/dev/null || fail "pin failed on already-pinned config"

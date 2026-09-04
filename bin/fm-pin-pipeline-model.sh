@@ -11,6 +11,6 @@ set -euo pipefail
 CONFIG=${1:-$HOME/.no-mistakes/config.yaml}
 
 if [ -f "$CONFIG" ] && ! grep -qE '^agent_config:' "$CONFIG"; then
-  printf '\nagent_config:\n  claude:\n    model: sonnet\n    effort: high\n' >> "$CONFIG"
-  echo "pinned no-mistakes claude agents to sonnet/high in $CONFIG"
+  printf '\nagent_config:\n  claude:\n    model: "opus[1m]"\n    effort: xhigh\n' >> "$CONFIG"
+  echo "pinned no-mistakes claude agents to opus[1m]/xhigh in $CONFIG"
 fi
