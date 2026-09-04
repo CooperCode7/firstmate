@@ -16,12 +16,14 @@ mkdir -p "$CLAUDE_DIR" "$FM_HOME/config"
 
 # Guardrails only, named one by one: session transcripts, history, and the
 # host's credentials are never among them, so this container authenticates as
-# itself. Nothing here removes an existing login, because an interactive
+# itself. hooks is on the list because a PreToolUse guard that only exists on
+# the host leaves the fleet unprotected exactly where agents hold live tokens,
+# and because settings.json references its scripts by path. Nothing here removes an existing login, because an interactive
 # `claude` login inside the container writes its credentials into this same
 # directory and must survive a restart.
 if [ -d "$SEED" ]; then
   synced=
-  for item in CLAUDE.md settings.json settings.local.json keybindings.json agents skills plugins; do
+  for item in CLAUDE.md settings.json settings.local.json keybindings.json agents skills plugins hooks; do
     [ -e "$SEED/$item" ] || continue
     rm -rf "${CLAUDE_DIR:?}/$item"
     cp -R "$SEED/$item" "$CLAUDE_DIR/$item"
