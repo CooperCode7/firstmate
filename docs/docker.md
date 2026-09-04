@@ -71,7 +71,8 @@ The guardrail sync deliberately never removes them.
 
 ## Host guardrails
 
-`~/.claude` is mounted read-only at `/seed/claude`, and [`docker/entrypoint.sh`](../docker/entrypoint.sh) copies the guardrail material out of it on every start: `CLAUDE.md`, `settings.json`, `settings.local.json`, `keybindings.json`, `agents/`, `skills/`, and the whole `plugins/` tree, so installed plugins load exactly as they do on the host.
+`~/.claude` is mounted read-only at `/seed/claude`, and [`docker/entrypoint.sh`](../docker/entrypoint.sh) copies the guardrail material out of it on every start: `CLAUDE.md`, `settings.json`, `settings.local.json`, `keybindings.json`, `agents/`, `skills/`, `hooks/`, and the whole `plugins/` tree, so installed plugins load exactly as they do on the host.
+Hooks are synced because a `PreToolUse` guard that exists only on the host would leave the container unprotected where agents hold live tokens, and because `settings.json` references its scripts by path.
 Editing any of those on the host and restarting the container propagates the change.
 
 Credentials and session transcripts are never copied.
